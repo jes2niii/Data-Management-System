@@ -1,0 +1,124 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: dms-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-password}
+      MYSQL_DATABASE: ${DB_DATABASE:-data_management}
+      MYSQL_USER: ${DB_USERNAME:-dms_user}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-password}
+    ports:
+      - "${DB_PORT:-3306}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - dms-network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: dms-backend
+    restart: unless-stopped
+    depends_on:
+      - mysql
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      APP_DEBUG: ${APP_DEBUG:-false}
+      APP_URL: ${APP_URL:-http://localhost}
+      DB_CONNECTION: mysql
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_DATABASE: ${DB_DATABASE:-data_management}
+      DB_USERNAME: ${DB_USERNAME:-dms_user}
+      DB_PASSWORD: ${DB_PASSWORD:-password}
+      SANCTUM_STATEFUL_DOMAINS: ${SANCTUM_STATEFUL_DOMAINS:-localhost:3000}
+      SESSION_DOMAIN: ${SESSION_DOMAIN:-localhost}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
+    volumes:
+      - ./backend:/var/www
+      - backend_storage:/var/www/storage
+    networks:
+      - dms-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: dms-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "3000:80"
+    networks:
+      - dms-network
+
+  nginx:
+    image: nginx:alpine
+    container_name: dms-nginx
+    restart: unless-stopped
+    ports:
+      - "${NGINX_PORT:-8080}:80"
+    volumes:
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf
+      - ./backend:/var/www
+      - backend_storage:/var/www/storage
+    depends_on:
+      - backend
+    networks:
+      - dms-network
+
+  queue-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: dms-queue
+    restart: unless-stopped
+    command: php artisan queue:work --sleep=3 --tries=3 --max-time=3600
+    depends_on:
+      - mysql
+    environment:
+      DB_CONNECTION: mysql
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_DATABASE: ${DB_DATABASE:-data_management}
+      DB_USERNAME: ${DB_USERNAME:-dms_user}
+      DB_PASSWORD: ${DB_PASSWORD:-password}
+    volumes:
+      - ./backend:/var/www
+    networks:
+      - dms-network
+
+  scheduler:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: dms-scheduler
+    restart: unless-stopped
+    command: |
+      sh -c "while :; do php artisan schedule:run; sleep 60; done"
+    depends_on:
+      - mysql
+    environment:
+      DB_CONNECTION: mysql
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_DATABASE: ${DB_DATABASE:-data_management}
+      DB_USERNAME: ${DB_USERNAME:-dms_user}
+      DB_PASSWORD: ${DB_PASSWORD:-password}
+    volumes:
+      - ./backend:/var/www
+    networks:
+      - dms-network
+
+networks:
+  dms-network:
+    driver: bridge
+
+volumes:
+  mysql_data:
+  backend_storage:
