@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Card, CardContent } from "@/components/ui/card"
+import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
 import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -23,6 +23,7 @@ import {
 import {
   ArrowLeft, Pencil, Trash2, Upload, Download, File, Eye,
   Clock, Mail, Phone, MapPin, Calendar, Briefcase, Building2,
+  User, Heart, DollarSign, CreditCard, FileText,
 } from "lucide-react"
 import EmployeeFormDialog from "./EmployeeFormDialog"
 
@@ -123,6 +124,23 @@ export default function EmployeeDetailPage() {
   const st = statusMap[employee.status] || statusMap.active
   const emp = employee?.data || employee
 
+  const calculateAge = (birthdate) => {
+    if (!birthdate) return null
+    const today = new Date()
+    const birth = new Date(birthdate)
+    let age = today.getFullYear() - birth.getFullYear()
+    const m = today.getMonth() - birth.getMonth()
+    if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--
+    return age
+  }
+
+  const formatDate = (d) => {
+    if (!d) return null
+    try { return format(new Date(d), "MMM dd, yyyy") } catch { return d }
+  }
+
+  const age = calculateAge(emp.birthdate)
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -147,10 +165,10 @@ export default function EmployeeDetailPage() {
         </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-1">
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card>
           <CardContent className="pt-6">
-            <div className="flex flex-col items-center text-center">
+            <div className="flex flex-col items-center text-center mb-4">
               <Avatar className="h-28 w-28 mb-4">
                 <AvatarImage src={emp.photo_url || ""} />
                 <AvatarFallback className="text-3xl">
@@ -159,160 +177,344 @@ export default function EmployeeDetailPage() {
               </Avatar>
               <h2 className="text-xl font-semibold">{emp.full_name}</h2>
               <Badge variant={st.variant} className="mt-2">{st.label}</Badge>
-              <p className="text-sm text-muted-foreground mt-1">{emp.employee_id || `ID: ${emp.id}`}</p>
             </div>
             <Separator className="my-4" />
             <div className="space-y-3">
+              {emp.employee_no && (
+                <div className="flex items-center gap-2 text-sm">
+                  <FileText className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">Employee No:</span>
+                  <span className="font-medium">{emp.employee_no}</span>
+                </div>
+              )}
+              {emp.gender && (
+                <div className="flex items-center gap-2 text-sm">
+                  <User className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">Gender:</span>
+                  <span>{emp.gender}</span>
+                </div>
+              )}
+              {emp.civil_status && (
+                <div className="flex items-center gap-2 text-sm">
+                  <Heart className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">Civil Status:</span>
+                  <span>{emp.civil_status}</span>
+                </div>
+              )}
+              {emp.birthdate && (
+                <div className="flex items-center gap-2 text-sm">
+                  <Calendar className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">Birthday:</span>
+                  <span>{formatDate(emp.birthdate)}{age !== null && ` (Age ${age})`}</span>
+                </div>
+              )}
+              {emp.place_of_birth && (
+                <div className="flex items-center gap-2 text-sm">
+                  <MapPin className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">Place of Birth:</span>
+                  <span>{emp.place_of_birth}</span>
+                </div>
+              )}
+              {emp.nationality && (
+                <div className="flex items-center gap-2 text-sm">
+                  <MapPin className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">Nationality:</span>
+                  <span>{emp.nationality}</span>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="pt-6">
+            <h3 className="font-semibold mb-4">Contact Details</h3>
+            <div className="space-y-3">
+              {emp.mobile_number && (
+                <div className="flex items-center gap-2 text-sm">
+                  <Phone className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">Mobile:</span>
+                  <span>{emp.mobile_number}</span>
+                </div>
+              )}
               {emp.email && (
                 <div className="flex items-center gap-2 text-sm">
                   <Mail className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">Email:</span>
                   <span>{emp.email}</span>
                 </div>
               )}
               {emp.phone && (
                 <div className="flex items-center gap-2 text-sm">
                   <Phone className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">Phone:</span>
                   <span>{emp.phone}</span>
                 </div>
               )}
-              {emp.address && (
-                <div className="flex items-center gap-2 text-sm">
-                  <MapPin className="h-4 w-4 text-muted-foreground" />
-                  <span>{emp.address}</span>
+              {emp.present_address && (
+                <div className="text-sm">
+                  <div className="flex items-center gap-2">
+                    <MapPin className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <span className="text-muted-foreground">Present Address:</span>
+                  </div>
+                  <p className="ml-6 mt-0.5">{emp.present_address}</p>
                 </div>
               )}
+              {emp.permanent_address && (
+                <div className="text-sm">
+                  <div className="flex items-center gap-2">
+                    <MapPin className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <span className="text-muted-foreground">Permanent Address:</span>
+                  </div>
+                  <p className="ml-6 mt-0.5">{emp.permanent_address}</p>
+                </div>
+              )}
+              <Separator />
+              <p className="text-sm font-medium text-muted-foreground">Emergency Contact</p>
+              {emp.emergency_contact_person && (
+                <div className="flex items-center gap-2 text-sm">
+                  <User className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">Person:</span>
+                  <span>{emp.emergency_contact_person}</span>
+                </div>
+              )}
+              {emp.emergency_contact_number && (
+                <div className="flex items-center gap-2 text-sm">
+                  <Phone className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">Number:</span>
+                  <span>{emp.emergency_contact_number}</span>
+                </div>
+              )}
+              {emp.emergency_relationship && (
+                <div className="flex items-center gap-2 text-sm">
+                  <Heart className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">Relationship:</span>
+                  <span>{emp.emergency_relationship}</span>
+                </div>
+              )}
+              {!emp.emergency_contact_person && !emp.emergency_contact_number && !emp.emergency_relationship && (
+                <p className="text-sm text-muted-foreground">No emergency contact</p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="pt-6">
+            <h3 className="font-semibold mb-4">Employment</h3>
+            <div className="space-y-3">
               {emp.department?.name && (
                 <div className="flex items-center gap-2 text-sm">
                   <Building2 className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">Department:</span>
                   <span>{emp.department?.name}</span>
                 </div>
               )}
               {emp.position && (
                 <div className="flex items-center gap-2 text-sm">
                   <Briefcase className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">Position:</span>
                   <span>{emp.position}</span>
+                </div>
+              )}
+              {emp.employment_type && (
+                <div className="flex items-center gap-2 text-sm">
+                  <Briefcase className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">Employment Type:</span>
+                  <span>{emp.employment_type}</span>
                 </div>
               )}
               {emp.date_hired && (
                 <div className="flex items-center gap-2 text-sm">
                   <Calendar className="h-4 w-4 text-muted-foreground" />
-                  <span>Hired: {format(new Date(emp.date_hired), "MMM dd, yyyy")}</span>
+                  <span className="text-muted-foreground">Date Hired:</span>
+                  <span>{formatDate(emp.date_hired)}</span>
                 </div>
               )}
-            </div>
-            <Separator className="my-4" />
-            <div className="space-y-2">
-              {emp.emergency_contact && (
-                <p className="text-sm">
-                  <span className="text-muted-foreground">Emergency Contact: </span>
-                  {emp.emergency_contact}
-                </p>
+              {emp.regularization_date && (
+                <div className="flex items-center gap-2 text-sm">
+                  <Calendar className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">Regularization:</span>
+                  <span>{formatDate(emp.regularization_date)}</span>
+                </div>
               )}
-              {emp.notes && (
-                <p className="text-sm">
-                  <span className="text-muted-foreground">Notes: </span>
-                  {emp.notes}
-                </p>
+              {emp.salary && (
+                <div className="flex items-center gap-2 text-sm">
+                  <DollarSign className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">Salary:</span>
+                  <span>{emp.salary}</span>
+                </div>
               )}
+              {emp.payroll_type && (
+                <div className="flex items-center gap-2 text-sm">
+                  <Clock className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">Payroll Type:</span>
+                  <span>{emp.payroll_type}</span>
+                </div>
+              )}
+              <div className="flex items-center gap-2 text-sm">
+                <Badge variant={st.variant}>{st.label}</Badge>
+              </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="lg:col-span-2">
+        <Card>
           <CardContent className="pt-6">
-            <Tabs defaultValue="attachments">
-              <TabsList>
-                <TabsTrigger value="attachments">Attachments</TabsTrigger>
-                <TabsTrigger value="history">History</TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="attachments" className="pt-4">
-                <div className="flex gap-2 mb-4">
-                  <Button variant="outline" onClick={() => setUploadDialogOpen(true)}>
-                    <Upload className="mr-2 h-4 w-4" /> Upload File
-                  </Button>
+            <h3 className="font-semibold mb-4">Government IDs</h3>
+            <div className="space-y-3">
+              {emp.sss_no && (
+                <div className="flex items-center gap-2 text-sm">
+                  <FileText className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">SSS No.:</span>
+                  <span>{emp.sss_no}</span>
                 </div>
-                {(!emp.attachments || emp.attachments.length === 0) ? (
-                  <div className="text-center py-12 text-muted-foreground">
-                    No attachments. Upload files to associate with this employee.
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {emp.attachments.map((att) => (
-                      <div key={att.id} className="flex items-center justify-between rounded-lg border p-3">
-                        <div className="flex items-center gap-3">
-                          <File className="h-8 w-8 text-muted-foreground" />
-                          <div>
-                            <p className="font-medium text-sm">{att.name}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {att.category && <Badge variant="outline" className="mr-1 text-xs">{att.category}</Badge>}
-                              {att.file_size && `${(att.file_size / 1024).toFixed(1)} KB`}
-                              {att.created_at && ` - ${format(new Date(att.created_at), "MMM dd, yyyy")}`}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex gap-1">
-                          {att.url && (
-                            <>
-                              <Button variant="ghost" size="icon" asChild title="View">
-                                <a href={att.url} target="_blank" rel="noopener noreferrer">
-                                  <Eye className="h-4 w-4" />
-                                </a>
-                              </Button>
-                              <Button variant="ghost" size="icon" asChild title="Download">
-                                <a href={att.url} download rel="noopener noreferrer">
-                                  <Download className="h-4 w-4" />
-                                </a>
-                              </Button>
-                            </>
-                          )}
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => deleteAttachmentMutation.mutate(att.id)}
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </TabsContent>
-
-              <TabsContent value="history" className="pt-4">
-                {(!emp.history || emp.history.length === 0) ? (
-                  <div className="text-center py-12 text-muted-foreground">No history records.</div>
-                ) : (
-                  <div className="space-y-4">
-                    {emp.history.map((item, idx) => (
-                      <div key={idx} className="flex gap-3">
-                        <div className="flex flex-col items-center">
-                          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted">
-                            <Clock className="h-4 w-4" />
-                          </div>
-                          {idx < emp.history.length - 1 && (
-                            <div className="h-full w-px bg-border mt-1" />
-                          )}
-                        </div>
-                        <div className="pb-4">
-                          <p className="text-sm font-medium">{item.action || "Updated"}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {item.description || item.user?.name || "System"}{" "}
-                            {item.created_at && format(new Date(item.created_at), "MMM dd, yyyy HH:mm")}
-                          </p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </TabsContent>
-            </Tabs>
+              )}
+              {emp.philhealth_no && (
+                <div className="flex items-center gap-2 text-sm">
+                  <FileText className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">PhilHealth No.:</span>
+                  <span>{emp.philhealth_no}</span>
+                </div>
+              )}
+              {emp.pagibig_no && (
+                <div className="flex items-center gap-2 text-sm">
+                  <FileText className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">Pag-IBIG No.:</span>
+                  <span>{emp.pagibig_no}</span>
+                </div>
+              )}
+              {emp.tin && (
+                <div className="flex items-center gap-2 text-sm">
+                  <FileText className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">TIN:</span>
+                  <span>{emp.tin}</span>
+                </div>
+              )}
+              {!emp.sss_no && !emp.philhealth_no && !emp.pagibig_no && !emp.tin && (
+                <p className="text-sm text-muted-foreground">No government IDs on file</p>
+              )}
+            </div>
+            <Separator className="my-4" />
+            <h3 className="font-semibold mb-4">Bank Details</h3>
+            <div className="space-y-3">
+              {emp.bank_name && (
+                <div className="flex items-center gap-2 text-sm">
+                  <CreditCard className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">Bank Name:</span>
+                  <span>{emp.bank_name}</span>
+                </div>
+              )}
+              {emp.bank_account && (
+                <div className="flex items-center gap-2 text-sm">
+                  <CreditCard className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">Bank Account:</span>
+                  <span>{emp.bank_account}</span>
+                </div>
+              )}
+              {!emp.bank_name && !emp.bank_account && (
+                <p className="text-sm text-muted-foreground">No bank details on file</p>
+              )}
+            </div>
           </CardContent>
         </Card>
       </div>
 
+      <Card>
+        <CardContent className="pt-6">
+          <Tabs defaultValue="attachments">
+            <TabsList>
+              <TabsTrigger value="attachments">Attachments</TabsTrigger>
+              <TabsTrigger value="history">History</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="attachments" className="pt-4">
+              <div className="flex gap-2 mb-4">
+                <Button variant="outline" onClick={() => setUploadDialogOpen(true)}>
+                  <Upload className="mr-2 h-4 w-4" /> Upload File
+                </Button>
+              </div>
+              {(!emp.attachments || emp.attachments.length === 0) ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  No attachments. Upload files to associate with this employee.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {emp.attachments.map((att) => (
+                    <div key={att.id} className="flex items-center justify-between rounded-lg border p-3">
+                      <div className="flex items-center gap-3">
+                        <File className="h-8 w-8 text-muted-foreground" />
+                        <div>
+                          <p className="font-medium text-sm">{att.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {att.category && <Badge variant="outline" className="mr-1 text-xs">{att.category}</Badge>}
+                            {att.file_size && `${(att.file_size / 1024).toFixed(1)} KB`}
+                            {att.created_at && ` - ${format(new Date(att.created_at), "MMM dd, yyyy")}`}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex gap-1">
+                        {att.url && (
+                          <>
+                            <Button variant="ghost" size="icon" asChild title="View">
+                              <a href={att.url} target="_blank" rel="noopener noreferrer">
+                                <Eye className="h-4 w-4" />
+                              </a>
+                            </Button>
+                            <Button variant="ghost" size="icon" asChild title="Download">
+                              <a href={att.url} download rel="noopener noreferrer">
+                                <Download className="h-4 w-4" />
+                              </a>
+                            </Button>
+                          </>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => deleteAttachmentMutation.mutate(att.id)}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="history" className="pt-4">
+              {(!emp.history || emp.history.length === 0) ? (
+                <div className="text-center py-12 text-muted-foreground">No history records.</div>
+              ) : (
+                <div className="space-y-4">
+                  {emp.history.map((item, idx) => (
+                    <div key={idx} className="flex gap-3">
+                      <div className="flex flex-col items-center">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted">
+                          <Clock className="h-4 w-4" />
+                        </div>
+                        {idx < emp.history.length - 1 && (
+                          <div className="h-full w-px bg-border mt-1" />
+                        )}
+                      </div>
+                      <div className="pb-4">
+                        <p className="text-sm font-medium">{item.action || "Updated"}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {item.description || item.user?.name || "System"}{" "}
+                          {item.created_at && format(new Date(item.created_at), "MMM dd, yyyy HH:mm")}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
+        </CardContent>
+      </Card>
+
       <EmployeeFormDialog
+        key={emp?.id || "new"}
         open={formOpen}
         onClose={() => setFormOpen(false)}
         employee={emp}

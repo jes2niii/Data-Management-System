@@ -25,6 +25,7 @@ class DatabaseSeeder extends Seeder
         $this->createDefaultDocumentCategories();
         $this->createDefaultFolderCategories();
         $this->createDefaultEmployeeAttachmentCategories();
+        $this->createDefaultAttendanceStatuses();
         $this->createDefaultSettings();
     }
 
@@ -218,6 +219,21 @@ class DatabaseSeeder extends Seeder
 
         foreach ($settings as $setting) {
             Setting::create($setting);
+        }
+    }
+
+    private function createDefaultAttendanceStatuses(): void
+    {
+        $statuses = [
+            ['name' => 'Present', 'code' => 'present', 'color' => 'green', 'is_present' => true],
+            ['name' => 'Absent', 'code' => 'absent', 'color' => 'red', 'is_present' => false],
+            ['name' => 'Late', 'code' => 'late', 'color' => 'yellow', 'is_present' => true],
+            ['name' => 'Half-day', 'code' => 'half_day', 'color' => 'orange', 'is_present' => true],
+            ['name' => 'Leave', 'code' => 'leave', 'color' => 'blue', 'is_present' => false],
+            ['name' => 'Holiday', 'code' => 'holiday', 'color' => 'gray', 'is_present' => false],
+        ];
+        foreach ($statuses as $s) {
+            \App\Models\AttendanceStatus::create($s);
         }
     }
 

@@ -11,32 +11,29 @@ class Employee extends Model
     use HasFactory, SoftDeletes;
 
     protected $fillable = [
-        'employee_id', 'user_id', 'photo', 'full_name', 'birthdate',
-        'gender', 'civil_status', 'department_id', 'position', 'employment_type',
-        'date_hired', 'salary', 'email', 'phone', 'address', 'emergency_contact',
-        'government_ids', 'status', 'notes',
+        'employee_id', 'employee_no', 'user_id', 'photo', 'full_name',
+        'first_name', 'middle_name', 'last_name', 'suffix',
+        'birthdate', 'age', 'place_of_birth', 'nationality',
+        'gender', 'civil_status',
+        'department_id', 'position', 'employment_type',
+        'date_hired', 'regularization_date', 'years_of_service',
+        'salary', 'payroll_type', 'status', 'notes',
+        'email', 'phone', 'mobile_number',
+        'address', 'present_address', 'permanent_address',
+        'emergency_contact', 'emergency_contact_person', 'emergency_contact_number', 'emergency_relationship',
+        'government_ids', 'sss_no', 'philhealth_no', 'pagibig_no', 'tin',
+        'bank_name', 'bank_account',
     ];
 
-    protected $appends = ['first_name', 'last_name', 'photo_url', 'emergency_contact_name', 'emergency_contact_phone'];
+    protected $appends = ['photo_url', 'emergency_contact_name', 'emergency_contact_phone'];
 
     protected $casts = [
         'birthdate' => 'date',
         'date_hired' => 'date',
+        'regularization_date' => 'date',
         'salary' => 'decimal:2',
         'government_ids' => 'json',
     ];
-
-    public function getFirstNameAttribute()
-    {
-        $parts = explode(' ', $this->full_name ?? '');
-        return $parts[0] ?? '';
-    }
-
-    public function getLastNameAttribute()
-    {
-        $parts = explode(' ', $this->full_name ?? '');
-        return count($parts) > 1 ? implode(' ', array_slice($parts, 1)) : '';
-    }
 
     public function getPhotoUrlAttribute()
     {
@@ -45,16 +42,12 @@ class Employee extends Model
 
     public function getEmergencyContactNameAttribute()
     {
-        if (!$this->emergency_contact) return '';
-        $parts = explode(' (', rtrim($this->emergency_contact, ')'));
-        return $parts[0] ?? '';
+        return $this->emergency_contact_person ?? '';
     }
 
     public function getEmergencyContactPhoneAttribute()
     {
-        if (!$this->emergency_contact) return '';
-        $parts = explode(' (', rtrim($this->emergency_contact, ')'));
-        return $parts[1] ?? '';
+        return $this->emergency_contact_number ?? '';
     }
 
     public function department()

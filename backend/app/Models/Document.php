@@ -73,4 +73,9 @@ class Document extends Model
     {
         return $this->hasMany(DocumentShare::class);
     }
+
+    public function access()
+    {
+        return $this->hasMany(DocumentAccess::class);
+    }
 }

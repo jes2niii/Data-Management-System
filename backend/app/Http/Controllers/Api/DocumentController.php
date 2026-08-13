@@ -4,9 +4,11 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Document;
+use App\Models\DocumentAccess;
 use App\Models\DocumentComment;
 use App\Models\DocumentShare;
 use App\Models\DocumentVersion;
+use App\Models\Folder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 
@@ -15,6 +17,21 @@ class DocumentController extends Controller
     public function index(Request $request)
     {
         $query = Document::with(['folder', 'creator', 'updater', 'documentCategory']);
+        $user = $request->user();
+
+        if (!$user->role || $user->role->name !== 'Super Admin') {
+            $query->where(function ($q) use ($user) {
+                $q->where('created_by', $user->id)
+                  ->orWhereDoesntHave('access')
+                  ->orWhereHas('access', function ($a) use ($user) {
+                      $a->where(function ($b) use ($user) {
+                          $b->where('access_type', 'user')->where('access_id', $user->id);
+                      })->orWhere(function ($b) use ($user) {
+                          $b->where('access_type', 'department')->where('access_id', $user->department_id);
+                      });
+                  });
+            });
+        }
 
         if ($request->has('folder_id')) {
             $query->where('folder_id', $request->folder_id ?: null);
@@ -75,6 +92,9 @@ class DocumentController extends Controller
             'labels' => 'nullable|array',
             'status' => 'nullable|string|in:draft,published,archived',
             'expiration_date' => 'nullable|date',
+            'access_type' => 'nullable|string|in:department,user,all',
+            'access_ids' => 'nullable|array',
+            'access_ids.*' => 'integer',
         ]);
 
         $file = $request->file('file');
@@ -98,6 +118,16 @@ class DocumentController extends Controller
             'expiration_date' => $request->expiration_date,
             'created_by' => $request->user()->id,
         ]);
+
+        if ($request->filled('access_type') && $request->access_type !== 'all') {
+            foreach ($request->access_ids ?? [] as $accessId) {
+                DocumentAccess::create([
+                    'document_id' => $document->id,
+                    'access_type' => $request->access_type,
+                    'access_id' => $accessId,
+                ]);
+            }
+        }
 
         return $this->success($document->load(['folder', 'creator']), 'Document uploaded', 201);
     }
@@ -125,6 +155,9 @@ class DocumentController extends Controller
             'labels' => 'nullable|array',
             'status' => 'nullable|string|in:draft,published,archived',
             'expiration_date' => 'nullable|date',
+            'access_type' => 'nullable|string|in:department,user,all',
+            'access_ids' => 'nullable|array',
+            'access_ids.*' => 'integer',
         ]);
 
         $data = $request->only([
@@ -135,7 +168,20 @@ class DocumentController extends Controller
 
         $document->update($data);
 
-        return $this->success($document->load(['folder', 'creator', 'updater']), 'Document updated');
+        if ($request->has('access_type')) {
+            $document->access()->delete();
+            if ($request->access_type !== 'all') {
+                foreach ($request->access_ids ?? [] as $accessId) {
+                    DocumentAccess::create([
+                        'document_id' => $document->id,
+                        'access_type' => $request->access_type,
+                        'access_id' => $accessId,
+                    ]);
+                }
+            }
+        }
+
+        return $this->success($document->load(['folder', 'creator', 'updater', 'access']), 'Document updated');
     }
 
     public function destroy($id)

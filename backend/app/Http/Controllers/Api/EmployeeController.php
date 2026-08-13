@@ -51,18 +51,17 @@ class EmployeeController extends Controller
             $data['employee_id'] = 'EMP-' . str_pad((Employee::max('id') ?? 0) + 1, 5, '0', STR_PAD_LEFT);
         }
 
-        if ($request->filled('first_name') && $request->filled('last_name')) {
-            $data['full_name'] = $request->first_name . ' ' . $request->last_name;
-        }
-        unset($data['first_name'], $data['last_name']);
+        $last = $request->last_name ?? '';
+        $first = $request->first_name ?? '';
+        $middle = $request->middle_name ?? '';
+        $suffix = $request->suffix ?? '';
+        $nameParts = [$last, $first];
+        if ($middle) $nameParts[] = $middle;
+        if ($suffix) $nameParts[] = $suffix;
+        $data['full_name'] = implode(', ', $nameParts);
 
-        if ($request->filled('emergency_contact_name')) {
-            $contact = $request->emergency_contact_name;
-            if ($request->filled('emergency_contact_phone')) {
-                $contact .= ' (' . $request->emergency_contact_phone . ')';
-            }
-            $data['emergency_contact'] = $contact;
-            unset($data['emergency_contact_name'], $data['emergency_contact_phone']);
+        if ($request->filled('emergency_contact_person') || $request->filled('emergency_contact_number')) {
+            $data['emergency_contact'] = trim($request->emergency_contact_person . ' (' . $request->emergency_contact_number . ')');
         }
 
         if ($request->hasFile('photo')) {
@@ -86,18 +85,18 @@ class EmployeeController extends Controller
         $employee = Employee::findOrFail($id);
         $data = $request->validated();
 
-        if ($request->filled('first_name') && $request->filled('last_name')) {
-            $data['full_name'] = $request->first_name . ' ' . $request->last_name;
-        }
-        unset($data['first_name'], $data['last_name']);
+        $last = $request->last_name ?? $employee->last_name;
+        $first = $request->first_name ?? $employee->first_name;
+        $middle = $request->middle_name ?? $employee->middle_name;
+        $suffix = $request->suffix ?? $employee->suffix;
+        $nameParts = [$last, $first];
+        if ($middle) $nameParts[] = $middle;
+        if ($suffix) $nameParts[] = $suffix;
+        $data['full_name'] = implode(', ', $nameParts);
 
-        if ($request->filled('emergency_contact_name')) {
-            $contact = $request->emergency_contact_name;
-            if ($request->filled('emergency_contact_phone')) {
-                $contact .= ' (' . $request->emergency_contact_phone . ')';
-            }
-            $data['emergency_contact'] = $contact;
-            unset($data['emergency_contact_name'], $data['emergency_contact_phone']);
+        if ($request->filled('emergency_contact_person') || $request->filled('emergency_contact_number')) {
+            $data['emergency_contact'] = trim(($request->emergency_contact_person ?? $employee->emergency_contact_person)
+                . ' (' . ($request->emergency_contact_number ?? $employee->emergency_contact_number) . ')');
         }
 
         if ($request->hasFile('photo')) {

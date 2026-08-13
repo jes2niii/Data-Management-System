@@ -148,7 +148,7 @@ export default function EmployeesPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Employee ID</TableHead>
+                    <TableHead>Employee No</TableHead>
                     <TableHead>Photo</TableHead>
                     <TableHead>Full Name</TableHead>
                     <TableHead>Department</TableHead>
@@ -163,7 +163,7 @@ export default function EmployeesPage() {
                     return (
                       <TableRow key={emp.id}>
                         <TableCell className="font-mono text-sm">
-                          {emp.employee_id || `EMP-${emp.id}`}
+                          {emp.employee_no || emp.employee_id || `EMP-${emp.id}`}
                         </TableCell>
                         <TableCell>
                           <Avatar className="h-9 w-9">
@@ -236,6 +236,7 @@ export default function EmployeesPage() {
       </Card>
 
       <EmployeeFormDialog
+        key={editingEmployee?.id || "new"}
         open={formOpen}
         onClose={() => { setFormOpen(false); setEditingEmployee(null) }}
         employee={editingEmployee}

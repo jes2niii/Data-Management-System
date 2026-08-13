@@ -18,6 +18,9 @@ use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\PermissionController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\RoleController;
+use App\Http\Controllers\Api\AttendanceController;
+use App\Http\Controllers\Api\SurveyController;
+use App\Http\Controllers\Api\TestAnalysisController;
 use App\Http\Controllers\Api\SearchController;
 use App\Http\Controllers\Api\SettingsController;
 use App\Http\Controllers\Api\UserController;
@@ -152,6 +155,34 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/settings/company-profile', [SettingsController::class, 'updateCompanyProfile'])->middleware('permission:settings.update');
     Route::put('/settings/preferences', [SettingsController::class, 'updatePreferences'])->middleware('permission:settings.update');
     Route::put('/settings/email', [SettingsController::class, 'updateEmail'])->middleware('permission:settings.update');
+
+    // Surveys
+    Route::get('/surveys', [SurveyController::class, 'index'])->middleware('permission:items.read');
+    Route::post('/surveys', [SurveyController::class, 'store'])->middleware('permission:items.create');
+    Route::get('/surveys/{survey}', [SurveyController::class, 'show'])->middleware('permission:items.read');
+    Route::put('/surveys/{survey}', [SurveyController::class, 'update'])->middleware('permission:items.update');
+    Route::delete('/surveys/{survey}', [SurveyController::class, 'destroy'])->middleware('permission:items.delete');
+    Route::post('/surveys/{id}/responses', [SurveyController::class, 'submitResponse']);
+    Route::get('/surveys/{id}/responses', [SurveyController::class, 'responses']);
+    Route::get('/surveys/{id}/analysis', [SurveyController::class, 'analysis']);
+
+    // Attendance
+    Route::get('/attendances', [AttendanceController::class, 'index']);
+    Route::post('/attendances', [AttendanceController::class, 'store']);
+    Route::put('/attendances/{attendance}', [AttendanceController::class, 'update']);
+    Route::delete('/attendances/{attendance}', [AttendanceController::class, 'destroy']);
+    Route::get('/attendances/summary', [AttendanceController::class, 'summary']);
+    Route::get('/attendance-statuses', [AttendanceController::class, 'getStatuses']);
+
+    // Test Item Analysis (U-L Method)
+    Route::get('/test-exams', [TestAnalysisController::class, 'index']);
+    Route::post('/test-exams', [TestAnalysisController::class, 'store']);
+    Route::get('/test-exams/{test_exam}', [TestAnalysisController::class, 'show']);
+    Route::put('/test-exams/{test_exam}', [TestAnalysisController::class, 'update']);
+    Route::delete('/test-exams/{test_exam}', [TestAnalysisController::class, 'destroy']);
+    Route::post('/test-exams/{id}/students', [TestAnalysisController::class, 'addStudents']);
+    Route::post('/test-exams/{id}/analyze', [TestAnalysisController::class, 'runAnalysis']);
+    Route::get('/test-exams/{id}/analysis', [TestAnalysisController::class, 'getAnalysis']);
 
     // Search
     Route::get('/search', [SearchController::class, 'search']);

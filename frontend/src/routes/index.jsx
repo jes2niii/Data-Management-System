@@ -17,6 +17,8 @@ import SettingsPage from "@/pages/settings/SettingsPage"
 import NotificationsPage from "@/pages/notifications/NotificationsPage"
 import ProfilePage from "@/pages/profile/ProfilePage"
 import RolesPermissionsPage from "@/pages/roles/RolesPermissionsPage"
+import ItemsPage from "@/pages/items/ItemsPage"
+import AttendancePage from "@/pages/attendance/AttendancePage"
 import { useAuth } from "@/contexts/AuthContext"
 
 function Providers({ children }) {
@@ -78,6 +80,8 @@ export const router = createBrowserRouter([
           { path: "notifications", element: <NotificationsPage /> },
           { path: "profile", element: <ProfilePage /> },
           { path: "roles", element: <RolesPermissionsPage /> },
+          { path: "items", element: <ItemsPage /> },
+          { path: "attendance", element: <AttendancePage /> },
         ],
       },
     ],

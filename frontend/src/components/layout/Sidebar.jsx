@@ -20,6 +20,10 @@ import {
   Mail,
   Tags,
   Shield,
+  Package,
+  ClipboardList,
+  Beaker,
+  Calendar,
 } from "lucide-react"
 
 const navItems = [
@@ -29,6 +33,7 @@ const navItems = [
   { to: "/files", label: "Files", icon: FileText, permission: "documents.read" },
   { to: "/forms", label: "Forms", icon: FileSpreadsheet, permission: "forms.read" },
   { to: "/billing", label: "Billing", icon: DollarSign, permission: "bills.read" },
+  { to: "/attendance", label: "Attendance", icon: Calendar, permission: null },
   { to: "/activity-logs", label: "Activity Logs", icon: Activity, permission: "activity_logs.read" },
   { to: "/reports", label: "Reports", icon: BarChart3, permission: "reports.read" },
   { to: "/notifications", label: "Notifications", icon: Bell, permission: null },
@@ -40,6 +45,11 @@ const settingsSubItems = [
   { to: "/settings?tab=email", label: "Email SMTP", icon: Mail, permission: "settings.read" },
   { to: "/settings?tab=categories", label: "Categories", icon: Tags, permission: "settings.read" },
   { to: "/settings?tab=roles", label: "Roles & Permissions", icon: Shield, permission: "roles.read" },
+]
+
+const itemAnalysisSubItems = [
+  { to: "/items?tab=survey", label: "Surveys", icon: ClipboardList, permission: "surveys" },
+  { to: "/items?tab=test", label: "Test Items", icon: Beaker, permission: "surveys" },
 ]
 
 function hasPermission(user, permission) {
@@ -55,7 +65,9 @@ export default function Sidebar({ isOpen }) {
   const location = useLocation()
   const { user } = useAuth()
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [itemAnalysisOpen, setItemAnalysisOpen] = useState(false)
   const isSettingsActive = location.pathname.startsWith("/settings")
+  const isItemsActive = location.pathname.startsWith("/items")
 
   const visibleItems = navItems.filter((item) => hasPermission(user, item.permission))
   const visibleSubItems = settingsSubItems.filter((item) => hasPermission(user, item.permission))
@@ -97,6 +109,49 @@ export default function Sidebar({ isOpen }) {
             </NavLink>
           )
         })}
+
+        <div>
+          <button
+            onClick={() => setItemAnalysisOpen(!itemAnalysisOpen)}
+            className={cn(
+              "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors w-full",
+              isItemsActive
+                ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+              !isOpen && "md:justify-center md:px-2"
+            )}
+          >
+            <Package className="h-5 w-5 shrink-0" />
+            <span className={cn("flex-1 text-left", !isOpen && "md:hidden")}>Item Analysis</span>
+            <ChevronDown className={cn("h-4 w-4 transition-transform", itemAnalysisOpen && "rotate-180", !isOpen && "md:hidden")} />
+          </button>
+          {itemAnalysisOpen && (
+            <div className="ml-2 mt-1 space-y-1 border-l-2 border-muted pl-2">
+              {itemAnalysisSubItems.map((sub) => {
+                const SubIcon = sub.icon
+                const subTab = new URLSearchParams(sub.to.split("?")[1]).get("tab")
+                const currentTab = new URLSearchParams(location.search).get("tab") || "survey"
+                const subActive = currentTab === subTab
+                return (
+                  <NavLink
+                    key={sub.to}
+                    to={sub.to}
+                    className={cn(
+                      "flex items-center gap-3 rounded-md px-3 py-1.5 text-sm transition-colors",
+                      subActive
+                        ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                        : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                      !isOpen && "md:hidden"
+                    )}
+                  >
+                    <SubIcon className="h-4 w-4 shrink-0" />
+                    <span>{sub.label}</span>
+                  </NavLink>
+                )
+              })}
+            </div>
+          )}
+        </div>
 
         {hasSettingsAccess && (
         <div>
