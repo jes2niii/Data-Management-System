@@ -12,7 +12,7 @@ class AttendanceController extends Controller
 {
     public function index(Request $request)
     {
-        $query = Attendance::with(['employee', 'status', 'recorder']);
+        $query = Attendance::with(['employee.department', 'status', 'recorder']);
 
         if ($request->filled('date')) {
             $query->where('date', $request->date);
@@ -48,6 +48,7 @@ class AttendanceController extends Controller
             'records' => 'required|array|min:1',
             'records.*.employee_id' => 'required|exists:employees,id',
             'records.*.date' => 'required|date',
+            'records.*.session' => 'nullable|in:morning,afternoon',
             'records.*.status_id' => 'nullable|exists:attendance_statuses,id',
             'records.*.time_in' => 'nullable|date_format:H:i',
             'records.*.time_out' => 'nullable|date_format:H:i',
@@ -59,7 +60,11 @@ class AttendanceController extends Controller
         $saved = [];
         foreach ($request->records as $rec) {
             $attendance = Attendance::updateOrCreate(
-                ['employee_id' => $rec['employee_id'], 'date' => $rec['date']],
+                [
+                    'employee_id' => $rec['employee_id'],
+                    'date' => $rec['date'],
+                    'session' => $rec['session'] ?? null,
+                ],
                 [
                     'status_id' => $rec['status_id'] ?? null,
                     'time_in' => $rec['time_in'] ?? null,
@@ -70,7 +75,7 @@ class AttendanceController extends Controller
                     'recorded_by' => $request->user()->id,
                 ]
             );
-            $saved[] = $attendance->load(['employee', 'status']);
+            $saved[] = $attendance->load(['employee.department', 'status']);
         }
 
         return $this->success($saved, 'Attendance recorded', 201);
@@ -80,6 +85,7 @@ class AttendanceController extends Controller
     {
         $attendance = Attendance::findOrFail($id);
         $request->validate([
+            'session' => 'nullable|in:morning,afternoon',
             'status_id' => 'nullable|exists:attendance_statuses,id',
             'time_in' => 'nullable|date_format:H:i',
             'time_out' => 'nullable|date_format:H:i',
@@ -88,10 +94,10 @@ class AttendanceController extends Controller
             'remarks' => 'nullable|string',
         ]);
         $attendance->update(array_merge(
-            $request->only(['status_id', 'time_in', 'time_out', 'minutes_late', 'hours_worked', 'remarks']),
+            $request->only(['session', 'status_id', 'time_in', 'time_out', 'minutes_late', 'hours_worked', 'remarks']),
             ['recorded_by' => $request->user()->id]
         ));
-        return $this->success($attendance->load(['employee', 'status']), 'Attendance updated');
+        return $this->success($attendance->load(['employee.department', 'status']), 'Attendance updated');
     }
 
     public function destroy($id)

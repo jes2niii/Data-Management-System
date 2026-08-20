@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
-import { format } from "date-fns"
+import { format, parse } from "date-fns"
 import api from "@/lib/api"
 import { useCurrency } from "@/hooks/useCurrency"
 import { Button } from "@/components/ui/button"
@@ -18,6 +18,12 @@ import { Calendar, Clock, TrendingUp, Users, Plus, CheckCircle2, XCircle } from 
 const statusColors = {
   Present: "success", Absent: "destructive", Late: "warning", "Half-day": "secondary",
   Leave: "info", Holiday: "outline",
+}
+
+const fmtDate = (value) => {
+  const d = String(value || "").slice(0, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return value || "—"
+  return format(parse(d, "yyyy-MM-dd", new Date()), "MMM d, yyyy")
 }
 
 export default function AttendancePage() {
@@ -83,15 +89,18 @@ export default function AttendancePage() {
     const [records, setRecords] = useState(() => {
       const initial = []
       employees.forEach(emp => {
-        const existing = attendances.find(a => a.employee_id === emp.id && a.date === selectedDate)
-        initial.push({
-          employee_id: emp.id,
-          employee_name: emp.full_name || emp.name,
-          date: selectedDate,
-          status_id: existing?.status_id || statuses.find(s => s.code === "present")?.id || null,
-          time_in: existing?.time_in || "",
-          time_out: existing?.time_out || "",
-          remarks: existing?.remarks || "",
+        ["morning", "afternoon"].forEach(session => {
+          const existing = attendances.find(a => a.employee_id === emp.id && a.date === selectedDate && a.session === session)
+          initial.push({
+            employee_id: emp.id,
+            employee_name: emp.full_name || emp.name,
+            session,
+            date: selectedDate,
+            status_id: existing?.status_id || statuses.find(s => s.code === "present")?.id || null,
+            time_in: existing?.time_in || "",
+            time_out: existing?.time_out || "",
+            remarks: existing?.remarks || "",
+          })
         })
       })
       return initial
@@ -101,7 +110,7 @@ export default function AttendancePage() {
       <Dialog open={recordOpen} onOpenChange={setRecordOpen}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
           <DialogHeader>
-            <DialogTitle>Record Attendance - {selectedDate}</DialogTitle>
+            <DialogTitle>Record Attendance - {fmtDate(selectedDate)}</DialogTitle>
           </DialogHeader>
           <div className="flex-1 overflow-auto">
             <Table>
@@ -109,6 +118,7 @@ export default function AttendancePage() {
                 <TableRow>
                   <TableHead className="w-[40px]">#</TableHead>
                   <TableHead>Employee</TableHead>
+                  <TableHead className="w-[110px]">Session</TableHead>
                   <TableHead className="w-[180px]">Status</TableHead>
                   <TableHead className="w-[100px]">Time In</TableHead>
                   <TableHead className="w-[100px]">Time Out</TableHead>
@@ -117,9 +127,15 @@ export default function AttendancePage() {
               </TableHeader>
               <TableBody>
                 {records.map((rec, i) => (
-                  <TableRow key={rec.employee_id}>
+                  <TableRow key={`${rec.employee_id}-${rec.session}`}>
                     <TableCell className="font-medium text-muted-foreground">{i + 1}</TableCell>
                     <TableCell className="font-medium">{rec.employee_name}</TableCell>
+                    <TableCell>
+                      <div className="space-y-1">
+                        <Badge variant={rec.session === "morning" ? "info" : "secondary"} className="text-[10px]">{rec.session === "morning" ? "Morning" : "Afternoon"}</Badge>
+                        <div className="text-[10px] text-muted-foreground">{rec.session === "morning" ? "AM" : "PM"}</div>
+                      </div>
+                    </TableCell>
                     <TableCell>
                       <Select value={String(rec.status_id || "")} onValueChange={v => { const nr = [...records]; nr[i].status_id = Number(v); setRecords(nr) }}>
                         <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select" /></SelectTrigger>
@@ -131,13 +147,13 @@ export default function AttendancePage() {
                     <TableCell>
                       <div className="space-y-1">
                         <Input className="h-8 text-xs" type="time" value={rec.time_in} onChange={e => { const nr = [...records]; nr[i].time_in = e.target.value; setRecords(nr) }} />
-                        <div className="text-[10px] text-muted-foreground">7-11 AM</div>
+                        <div className="text-[10px] text-muted-foreground">{rec.session === "morning" ? "7-11 AM" : "8 AM-12 PM"}</div>
                       </div>
                     </TableCell>
                     <TableCell>
                       <div className="space-y-1">
                         <Input className="h-8 text-xs" type="time" value={rec.time_out} onChange={e => { const nr = [...records]; nr[i].time_out = e.target.value; setRecords(nr) }} />
-                        <div className="text-[10px] text-muted-foreground">12-4 PM</div>
+                        <div className="text-[10px] text-muted-foreground">{rec.session === "morning" ? "12-4 PM" : "1-5 PM"}</div>
                       </div>
                     </TableCell>
                     <TableCell>
@@ -151,7 +167,7 @@ export default function AttendancePage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setRecordOpen(false)}>Cancel</Button>
             <Button onClick={() => recordMutation.mutate(records.map(r => ({
-              employee_id: r.employee_id, date: r.date, status_id: r.status_id,
+              employee_id: r.employee_id, date: r.date, session: r.session, status_id: r.status_id,
               time_in: r.time_in || null, time_out: r.time_out || null, remarks: r.remarks || null,
             })))} disabled={recordMutation.isPending}>
               {recordMutation.isPending ? "Saving..." : `Save ${records.length} Records`}
@@ -241,6 +257,7 @@ export default function AttendancePage() {
                   <TableHead>Employee</TableHead>
                   <TableHead>Department</TableHead>
                   <TableHead>Date</TableHead>
+                  <TableHead className="text-center">Session</TableHead>
                   <TableHead className="text-center">Time In</TableHead>
                   <TableHead className="text-center">Time Out</TableHead>
                   <TableHead className="text-center">Status</TableHead>
@@ -253,7 +270,10 @@ export default function AttendancePage() {
                     <TableCell className="font-medium text-muted-foreground">{i + 1}</TableCell>
                     <TableCell className="font-medium">{a.employee?.full_name || a.employee?.name || "—"}</TableCell>
                     <TableCell>{a.employee?.department?.name || "—"}</TableCell>
-                    <TableCell>{a.date}</TableCell>
+                    <TableCell>{fmtDate(a.date)}</TableCell>
+                    <TableCell className="text-center">
+                      {a.session ? <Badge variant={a.session === "morning" ? "info" : "secondary"} className="text-[10px]">{a.session === "morning" ? "Morning" : "Afternoon"}</Badge> : "—"}
+                    </TableCell>
                     <TableCell className="text-center font-mono text-sm">{a.time_in || "—"}</TableCell>
                     <TableCell className="text-center font-mono text-sm">{a.time_out || "—"}</TableCell>
                     <TableCell className="text-center">

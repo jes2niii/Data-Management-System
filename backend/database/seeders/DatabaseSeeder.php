@@ -233,7 +233,7 @@ class DatabaseSeeder extends Seeder
             ['name' => 'Holiday', 'code' => 'holiday', 'color' => 'gray', 'is_present' => false],
         ];
         foreach ($statuses as $s) {
-            \App\Models\AttendanceStatus::create($s);
+            \App\Models\AttendanceStatus::updateOrCreate(['code' => $s['code']], $s);
         }
     }
 
