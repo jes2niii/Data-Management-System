@@ -153,7 +153,7 @@ export default function BillingAnalytics() {
                 <Calendar className="h-5 w-5 text-purple-600" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{symbol}{avgMonthly.toFixed(0).toLocaleString()}</div>
+                <div className="text-2xl font-bold">{symbol}{Math.round(avgMonthly).toLocaleString()}</div>
                 <p className="text-xs text-muted-foreground">Per month average</p>
               </CardContent>
             </Card>

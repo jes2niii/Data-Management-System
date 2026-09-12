@@ -125,17 +125,17 @@ export default function Header({ toggleSidebar, darkMode, toggleDarkMode }) {
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
           <DropdownMenuItem asChild>
-            <a href="/profile" className="cursor-pointer">
+            <Link to="/profile" className="cursor-pointer">
               <User className="mr-2 h-4 w-4" />
               Profile
-            </a>
+            </Link>
           </DropdownMenuItem>
           {canAccessSettings && (
             <DropdownMenuItem asChild>
-              <a href="/settings" className="cursor-pointer">
+              <Link to="/settings" className="cursor-pointer">
                 <Settings className="mr-2 h-4 w-4" />
                 Settings
-              </a>
+              </Link>
             </DropdownMenuItem>
           )}
           <DropdownMenuSeparator />

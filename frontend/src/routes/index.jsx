@@ -2,24 +2,40 @@ import { createBrowserRouter, Navigate, Outlet } from "react-router-dom"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { AuthProvider } from "@/contexts/AuthContext"
 import AppLayout from "@/components/layout/AppLayout"
-import DashboardPage from "@/pages/dashboard/DashboardPage"
-import LoginPage from "@/pages/auth/LoginPage"
-import UsersPage from "@/pages/users/UsersPage"
-import EmployeesPage from "@/pages/employees/EmployeesPage"
-import EmployeeDetailPage from "@/pages/employees/EmployeeDetailPage"
-import FilesPage from "@/pages/files/FilesPage"
-import FormsPage from "@/pages/forms/FormsPage"
-import BillsPage from "@/pages/billing/BillsPage"
-import BillingAnalytics from "@/pages/billing/BillingAnalytics"
-import ActivityLogsPage from "@/pages/activity-logs/ActivityLogsPage"
-import ReportsPage from "@/pages/reports/ReportsPage"
-import SettingsPage from "@/pages/settings/SettingsPage"
-import NotificationsPage from "@/pages/notifications/NotificationsPage"
-import ProfilePage from "@/pages/profile/ProfilePage"
-import RolesPermissionsPage from "@/pages/roles/RolesPermissionsPage"
-import ItemsPage from "@/pages/items/ItemsPage"
-import AttendancePage from "@/pages/attendance/AttendancePage"
+import { lazy, Suspense } from "react"
 import { useAuth } from "@/contexts/AuthContext"
+import { Skeleton } from "@/components/ui/skeleton"
+
+const DashboardPage = lazy(() => import("@/pages/dashboard/DashboardPage"))
+const LoginPage = lazy(() => import("@/pages/auth/LoginPage"))
+const UsersPage = lazy(() => import("@/pages/users/UsersPage"))
+const EmployeesPage = lazy(() => import("@/pages/employees/EmployeesPage"))
+const EmployeeDetailPage = lazy(() => import("@/pages/employees/EmployeeDetailPage"))
+const FilesPage = lazy(() => import("@/pages/files/FilesPage"))
+const FormsPage = lazy(() => import("@/pages/forms/FormsPage"))
+const BillsPage = lazy(() => import("@/pages/billing/BillsPage"))
+const BillingAnalytics = lazy(() => import("@/pages/billing/BillingAnalytics"))
+const SubscriptionsPage = lazy(() => import("@/pages/billing/SubscriptionsPage"))
+const ActivityLogsPage = lazy(() => import("@/pages/activity-logs/ActivityLogsPage"))
+const ReportsPage = lazy(() => import("@/pages/reports/ReportsPage"))
+const SettingsPage = lazy(() => import("@/pages/settings/SettingsPage"))
+const NotificationsPage = lazy(() => import("@/pages/notifications/NotificationsPage"))
+const ProfilePage = lazy(() => import("@/pages/profile/ProfilePage"))
+const RolesPermissionsPage = lazy(() => import("@/pages/roles/RolesPermissionsPage"))
+const ItemsPage = lazy(() => import("@/pages/items/ItemsPage"))
+const AttendancePage = lazy(() => import("@/pages/attendance/AttendancePage"))
+const TrainingMonitoringPage = lazy(() => import("@/pages/training/TrainingMonitoringPage"))
+const InventoryPage = lazy(() => import("@/pages/inventory/InventoryPage"))
+
+function SuspenseFallback() {
+  return (
+    <div className="space-y-4 p-6">
+      <Skeleton className="h-8 w-48" />
+      <Skeleton className="h-32 w-full" />
+      <Skeleton className="h-64 w-full" />
+    </div>
+  )
+}
 
 function Providers({ children }) {
   return (
@@ -33,16 +49,34 @@ function Providers({ children }) {
 
 function ProtectedRoute({ children }) {
   const { isAuthenticated, loading } = useAuth()
-  if (loading) return null
+  if (loading) return (
+    <div className="flex h-screen items-center justify-center">
+      <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+    </div>
+  )
   if (!isAuthenticated) return <Navigate to="/login" replace />
   return children
 }
 
 function PublicRoute({ children }) {
   const { isAuthenticated, loading } = useAuth()
-  if (loading) return null
+  if (loading) return (
+    <div className="flex h-screen items-center justify-center">
+      <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+    </div>
+  )
   if (isAuthenticated) return <Navigate to="/dashboard" replace />
   return children
+}
+
+function NotFound() {
+  return (
+    <div className="flex h-[60vh] flex-col items-center justify-center gap-4">
+      <h1 className="text-4xl font-bold">404</h1>
+      <p className="text-muted-foreground">Page not found</p>
+      <a href="/dashboard" className="text-primary hover:underline">Go to Dashboard</a>
+    </div>
+  )
 }
 
 export const router = createBrowserRouter([
@@ -53,7 +87,7 @@ export const router = createBrowserRouter([
         path: "/login",
         element: (
           <PublicRoute>
-            <LoginPage />
+            <Suspense fallback={<SuspenseFallback />}><LoginPage /></Suspense>
           </PublicRoute>
         ),
       },
@@ -66,24 +100,30 @@ export const router = createBrowserRouter([
         ),
         children: [
           { index: true, element: <Navigate to="/dashboard" replace /> },
-          { path: "dashboard", element: <DashboardPage /> },
-          { path: "users", element: <UsersPage /> },
-          { path: "employees", element: <EmployeesPage /> },
-          { path: "employees/:id", element: <EmployeeDetailPage /> },
-          { path: "files", element: <FilesPage /> },
-          { path: "forms", element: <FormsPage /> },
-          { path: "billing", element: <BillsPage /> },
-          { path: "billing/analytics", element: <BillingAnalytics /> },
-          { path: "activity-logs", element: <ActivityLogsPage /> },
-          { path: "reports", element: <ReportsPage /> },
-          { path: "settings", element: <SettingsPage /> },
-          { path: "notifications", element: <NotificationsPage /> },
-          { path: "profile", element: <ProfilePage /> },
-          { path: "roles", element: <RolesPermissionsPage /> },
-          { path: "items", element: <ItemsPage /> },
-          { path: "attendance", element: <AttendancePage /> },
+          { path: "dashboard", element: <Suspense fallback={<SuspenseFallback />}><DashboardPage /></Suspense> },
+          { path: "users", element: <Suspense fallback={<SuspenseFallback />}><UsersPage /></Suspense> },
+          { path: "employees", element: <Suspense fallback={<SuspenseFallback />}><EmployeesPage /></Suspense> },
+          { path: "employees/:id", element: <Suspense fallback={<SuspenseFallback />}><EmployeeDetailPage /></Suspense> },
+          { path: "files", element: <Suspense fallback={<SuspenseFallback />}><FilesPage /></Suspense> },
+          { path: "forms", element: <Suspense fallback={<SuspenseFallback />}><FormsPage /></Suspense> },
+          { path: "billing", element: <Suspense fallback={<SuspenseFallback />}><BillsPage /></Suspense> },
+          { path: "billing/analytics", element: <Suspense fallback={<SuspenseFallback />}><BillingAnalytics /></Suspense> },
+          { path: "billing/subscriptions", element: <Suspense fallback={<SuspenseFallback />}><SubscriptionsPage /></Suspense> },
+          { path: "activity-logs", element: <Suspense fallback={<SuspenseFallback />}><ActivityLogsPage /></Suspense> },
+          { path: "reports", element: <Suspense fallback={<SuspenseFallback />}><ReportsPage /></Suspense> },
+          { path: "settings", element: <Suspense fallback={<SuspenseFallback />}><SettingsPage /></Suspense> },
+          { path: "notifications", element: <Suspense fallback={<SuspenseFallback />}><NotificationsPage /></Suspense> },
+          { path: "profile", element: <Suspense fallback={<SuspenseFallback />}><ProfilePage /></Suspense> },
+          { path: "roles", element: <Suspense fallback={<SuspenseFallback />}><RolesPermissionsPage /></Suspense> },
+          { path: "items", element: <Suspense fallback={<SuspenseFallback />}><ItemsPage /></Suspense> },
+          { path: "attendance", element: <Suspense fallback={<SuspenseFallback />}><AttendancePage /></Suspense> },
+          { path: "training", element: <Suspense fallback={<SuspenseFallback />}><TrainingMonitoringPage /></Suspense> },
+          { path: "training-monitoring", element: <Navigate to="/training" replace /> },
+          { path: "inventory", element: <Suspense fallback={<SuspenseFallback />}><InventoryPage /></Suspense> },
+          { path: "*", element: <NotFound /> },
         ],
       },
+      { path: "*", element: <Navigate to="/dashboard" replace /> },
     ],
   },
 ])

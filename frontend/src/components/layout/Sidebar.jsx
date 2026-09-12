@@ -24,6 +24,10 @@ import {
   ClipboardList,
   Beaker,
   Calendar,
+  GraduationCap,
+  Trash2,
+  Palette,
+  Boxes,
 } from "lucide-react"
 
 const navItems = [
@@ -34,6 +38,8 @@ const navItems = [
   { to: "/forms", label: "Forms", icon: FileSpreadsheet, permission: "forms.read" },
   { to: "/billing", label: "Billing", icon: DollarSign, permission: "bills.read" },
   { to: "/attendance", label: "Attendance", icon: Calendar, permission: null },
+  { to: "/training", label: "Training Monitoring", icon: GraduationCap, permission: null },
+  { to: "/inventory", label: "Inventory", icon: Boxes, permission: "inventory.read" },
   { to: "/activity-logs", label: "Activity Logs", icon: Activity, permission: "activity_logs.read" },
   { to: "/reports", label: "Reports", icon: BarChart3, permission: "reports.read" },
   { to: "/notifications", label: "Notifications", icon: Bell, permission: null },
@@ -42,9 +48,12 @@ const navItems = [
 
 const settingsSubItems = [
   { to: "/settings?tab=general", label: "General", icon: Building2, permission: "settings.read" },
+  { to: "/settings?tab=personalization", label: "Personalization", icon: Palette, permission: null },
   { to: "/settings?tab=email", label: "Email SMTP", icon: Mail, permission: "settings.read" },
   { to: "/settings?tab=categories", label: "Categories", icon: Tags, permission: "settings.read" },
+  { to: "/settings?tab=trainings", label: "Trainings", icon: GraduationCap, permission: "settings.read" },
   { to: "/settings?tab=roles", label: "Roles & Permissions", icon: Shield, permission: "roles.read" },
+  { to: "/settings?tab=reset", label: "Reset Data", icon: Trash2, permission: "settings.update" },
 ]
 
 const itemAnalysisSubItems = [

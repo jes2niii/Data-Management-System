@@ -20,8 +20,11 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
-import { Camera, Save, Plus, Pencil, Trash2 } from "lucide-react"
+import { Camera, Save, Plus, Pencil, Trash2, AlertTriangle, Trash, RefreshCw, Database, Palette, Sun, Moon, Monitor, Layout, Zap, Globe, Bell, Check } from "lucide-react"
 import RolesPermissionsPage from "@/pages/roles/RolesPermissionsPage"
+import TrainingsSettings from "./TrainingsSettings"
+import { useLanguage } from "@/contexts/LanguageContext"
+import { setLanguage as setLangStorage, getTranslation } from "@/lib/i18n"
 
 export default function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -52,6 +55,12 @@ export default function SettingsPage() {
       {activeTab === "categories" && <CategoriesManagement />}
 
       {activeTab === "roles" && <RolesPermissionsPage />}
+
+      {(activeTab === "trainings" || activeTab === "training-details") && <TrainingsSettings />}
+
+      {activeTab === "personalization" && <PersonalizationSection />}
+
+      {activeTab === "reset" && <ResetDataSection />}
     </div>
   )
 }
@@ -187,9 +196,9 @@ function SystemPreferencesSection({ settings }) {
 
   useEffect(() => {
     setForm({
-      timezone: settings?.timezone || "UTC",
-      currency: settings?.currency || "USD",
-      date_format: settings?.date_format || "MM/DD/YYYY",
+      timezone: settings?.timezone || "Asia/Manila",
+      currency: settings?.currency || "PHP",
+      date_format: settings?.date_format || "Y-m-d",
     })
   }, [settings])
 
@@ -440,6 +449,432 @@ function CategoriesManagement() {
         </Tabs>
       </CardContent>
     </Card>
+  )
+}
+
+function PersonalizationSection() {
+  const { lang: contextLang, changeLanguage, t } = useLanguage()
+  const [theme, setTheme] = useState(() => localStorage.getItem("theme") || "system")
+  const [accent, setAccent] = useState(() => localStorage.getItem("accent") || "default")
+  const [sidebarDefault, setSidebarDefault] = useState(() => localStorage.getItem("sidebarDefault") || "expanded")
+  const [density, setDensity] = useState(() => localStorage.getItem("density") || "comfortable")
+  const [animations, setAnimations] = useState(() => localStorage.getItem("animations") !== "false")
+  const [language, setLanguage] = useState(() => localStorage.getItem("language") || contextLang || "en")
+  const [itemsPerPage, setItemsPerPage] = useState(() => localStorage.getItem("itemsPerPage") || "10")
+  const [emailNotif, setEmailNotif] = useState(() => localStorage.getItem("emailNotif") !== "false")
+  const [pushNotif, setPushNotif] = useState(() => localStorage.getItem("pushNotif") !== "false")
+
+  const accentOptions = [
+    { value: "default", label: "Default", color: "hsl(var(--primary))", preview: "bg-[oklch(0.205_0.042_265.755)] dark:bg-[oklch(0.922_0_0)] border-2 border-dashed border-primary/20" },
+    { value: "blue", label: "Ocean Blue", color: "#3b82f6", preview: "bg-blue-500" },
+    { value: "emerald", label: "Emerald", color: "#10b981", preview: "bg-emerald-500" },
+    { value: "violet", label: "Violet", color: "#8b5cf6", preview: "bg-violet-500" },
+    { value: "rose", label: "Rose", color: "#f43f5e", preview: "bg-rose-500" },
+    { value: "amber", label: "Amber", color: "#f59e0b", preview: "bg-amber-500" },
+  ]
+
+  const applyTheme = (newTheme) => {
+    setTheme(newTheme)
+    localStorage.setItem("theme", newTheme)
+    if (newTheme === "dark") {
+      document.documentElement.classList.add("dark")
+      localStorage.setItem("darkMode", "true")
+    } else if (newTheme === "light") {
+      document.documentElement.classList.remove("dark")
+      localStorage.setItem("darkMode", "false")
+    } else {
+      // system
+      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches
+      document.documentElement.classList.toggle("dark", prefersDark)
+      localStorage.removeItem("darkMode")
+    }
+  }
+
+  const handleSave = () => {
+    // Save current selections as user's personalization (per-device, not system default)
+    // System defaults remain unchanged (system/default/comfortable etc. for new users/devices)
+    const prevTheme = localStorage.getItem("theme")
+    localStorage.setItem("accent", accent)
+    localStorage.setItem("sidebarDefault", sidebarDefault)
+    localStorage.setItem("density", density)
+    localStorage.setItem("animations", String(animations))
+    // Language: persist and apply immediately via context (fixes "not working")
+    setLangStorage(language)
+    changeLanguage(language)
+    localStorage.setItem("itemsPerPage", itemsPerPage)
+    localStorage.setItem("emailNotif", String(emailNotif))
+    localStorage.setItem("pushNotif", String(pushNotif))
+    // Only update theme in storage if it actually changed via the theme buttons (applyTheme already handled it)
+    // Do NOT overwrite theme here to avoid resetting the preview/default
+    if (theme !== prevTheme) {
+      localStorage.setItem("theme", theme)
+    }
+    // Apply density/animations immediately without affecting other defaults
+    document.documentElement.setAttribute("data-density", density)
+    document.documentElement.setAttribute("data-animations", String(animations))
+    // Dispatch event for other components (like tables using usePersonalization)
+    window.dispatchEvent(new Event("personalization-changed"))
+    window.dispatchEvent(new StorageEvent("storage", { key: "itemsPerPage", newValue: itemsPerPage }))
+    toast.success(getTranslation(language, "settings.saved"))
+    // Apply accent immediately
+    if (accent !== "default") {
+      document.documentElement.style.setProperty("--primary", accentOptions.find(a => a.value === accent)?.color || "hsl(var(--primary))")
+    } else {
+      document.documentElement.style.removeProperty("--primary")
+    }
+  }
+
+  const handleReset = () => {
+    localStorage.removeItem("theme")
+    localStorage.removeItem("accent")
+    localStorage.removeItem("sidebarDefault")
+    localStorage.removeItem("density")
+    localStorage.removeItem("animations")
+    localStorage.removeItem("language")
+    localStorage.removeItem("itemsPerPage")
+    localStorage.removeItem("emailNotif")
+    localStorage.removeItem("pushNotif")
+    setLangStorage("en")
+    changeLanguage("en")
+    setTheme("system")
+    setAccent("default")
+    setSidebarDefault("expanded")
+    setDensity("comfortable")
+    setAnimations(true)
+    setLanguage("en")
+    setItemsPerPage("10")
+    setEmailNotif(true)
+    setPushNotif(true)
+    document.documentElement.classList.remove("dark")
+    if (window.matchMedia("(prefers-color-scheme: dark)").matches) document.documentElement.classList.add("dark")
+    document.documentElement.style.removeProperty("--primary")
+    document.documentElement.setAttribute("data-density", "comfortable")
+    document.documentElement.setAttribute("data-animations", "true")
+    window.dispatchEvent(new Event("personalization-changed"))
+    toast.success(getTranslation("en", "settings.resetSuccess"))
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><Palette className="h-5 w-5" /> {t("settings.appearance")}</CardTitle>
+            <CardDescription>Customize look and feel. Changes apply instantly and are saved per device. — {t("settings.language")}: {language}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="space-y-2">
+              <Label>Theme</Label>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { value: "light", label: "Light", icon: Sun, preview: "bg-white border" },
+                  { value: "dark", label: "Dark", icon: Moon, preview: "bg-zinc-900 border-zinc-700" },
+                  { value: "system", label: "System", icon: Monitor, preview: "bg-gradient-to-br from-white to-zinc-900 border" },
+                ].map(opt => {
+                  const Icon = opt.icon
+                  const active = theme === opt.value
+                  return (
+                    <button
+                      key={opt.value}
+                      onClick={() => applyTheme(opt.value)}
+                      className={`relative flex flex-col items-center gap-2 rounded-lg border-2 p-4 transition-all ${active ? "border-primary bg-primary/5" : "border-muted hover:border-primary/50"}`}
+                    >
+                      <div className={`h-12 w-full rounded ${opt.preview} flex items-center justify-center`}>
+                        <Icon className="h-5 w-5" />
+                      </div>
+                      <span className="text-sm font-medium flex items-center gap-1">
+                        {opt.label} {active && <Check className="h-3 w-3 text-primary" />}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="text-xs text-muted-foreground">System follows your OS preference.</p>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Accent Color</Label>
+              <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                {accentOptions.map(opt => (
+                  <button
+                    key={opt.value}
+                    onClick={() => setAccent(opt.value)}
+                    className={`flex flex-col items-center gap-1.5 rounded-lg border-2 p-2.5 transition-all ${accent === opt.value ? "border-primary bg-primary/5" : "border-muted hover:border-primary/50"}`}
+                  >
+                    <div className={`h-7 w-7 rounded-full ${opt.preview} border shadow-sm`} />
+                    <span className="text-xs font-medium">{opt.label}</span>
+                    {accent === opt.value && <Check className="h-3 w-3 text-primary" />}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label className="flex items-center gap-1"><Layout className="h-3.5 w-3.5" /> Density</Label>
+                <Select value={density} onValueChange={setDensity}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="comfortable">Comfortable</SelectItem>
+                    <SelectItem value="compact">Compact</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label className="flex items-center gap-1"><Zap className="h-3.5 w-3.5" /> Animations</Label>
+                <Select value={animations ? "enabled" : "disabled"} onValueChange={v => setAnimations(v === "enabled")}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="enabled">Enabled</SelectItem>
+                    <SelectItem value="disabled">Reduced</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><Globe className="h-5 w-5" /> {t("settings.preferences")}</CardTitle>
+            <CardDescription>Personal choices for layout and workflow. — {t("settings.language")}: {t(`settings.language.${language}`) || language}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>{t("settings.language")}</Label>
+                <Select value={language} onValueChange={v => { setLanguage(v); setLangStorage(v); changeLanguage(v) }}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="en">{t("settings.language.en")}</SelectItem>
+                    <SelectItem value="fil">{t("settings.language.fil")}</SelectItem>
+                    <SelectItem value="es">{t("settings.language.es")}</SelectItem>
+                    <SelectItem value="ja">{t("settings.language.ja")}</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">Selected: {language} — preview below updates instantly</p>
+              </div>
+              <div className="space-y-2">
+                <Label>Sidebar Default</Label>
+                <Select value={sidebarDefault} onValueChange={setSidebarDefault}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="expanded">Expanded</SelectItem>
+                    <SelectItem value="collapsed">Collapsed</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Items Per Page</Label>
+              <Select value={itemsPerPage} onValueChange={setItemsPerPage}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="10">10</SelectItem>
+                  <SelectItem value="25">25</SelectItem>
+                  <SelectItem value="50">50</SelectItem>
+                  <SelectItem value="100">100</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">Controls pagination in Training, Billing, Employees tables</p>
+            </div>
+
+            <Separator />
+
+            <div className="space-y-3">
+              <Label className="flex items-center gap-1"><Bell className="h-4 w-4" /> Notifications</Label>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between rounded-lg border p-3">
+                  <div>
+                    <div className="text-sm font-medium">Email Notifications</div>
+                    <div className="text-xs text-muted-foreground">Receive updates via email</div>
+                  </div>
+                  <input type="checkbox" checked={emailNotif} onChange={e => setEmailNotif(e.target.checked)} className="h-4 w-4 rounded border-input" />
+                </div>
+                <div className="flex items-center justify-between rounded-lg border p-3">
+                  <div>
+                    <div className="text-sm font-medium">Push Notifications</div>
+                    <div className="text-xs text-muted-foreground">Browser push alerts</div>
+                  </div>
+                  <input type="checkbox" checked={pushNotif} onChange={e => setPushNotif(e.target.checked)} className="h-4 w-4 rounded border-input" />
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Preview</CardTitle>
+          <CardDescription>How your choices look</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 md:grid-cols-3">
+            <div className="rounded-lg border p-3">
+              <div className="text-xs text-muted-foreground">Theme</div>
+              <div className="font-medium capitalize flex items-center gap-1.5"><Palette className="h-3.5 w-3.5" /> {theme}</div>
+            </div>
+            <div className="rounded-lg border p-3">
+              <div className="text-xs text-muted-foreground">Accent</div>
+              <div className="font-medium capitalize flex items-center gap-1.5">
+                <span className={`h-3 w-3 rounded-full ${accentOptions.find(a => a.value === accent)?.preview || "bg-primary"}`} />
+                {accent}
+              </div>
+            </div>
+            <div className="rounded-lg border p-3">
+              <div className="text-xs text-muted-foreground">Density</div>
+              <div className="font-medium capitalize">{density} • {animations ? "Animated" : "Reduced"}</div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="flex gap-2">
+        <Button onClick={handleSave}><Save className="mr-2 h-4 w-4" /> {t("settings.save")}</Button>
+        <Button variant="outline" onClick={handleReset}>{t("settings.reset")}</Button>
+      </div>
+      <p className="text-xs text-muted-foreground">Saved per device in <code>localStorage</code> (<code>theme, accent, density</code> etc.). System preferences (timezone/currency) remain in General tab and are server-side.</p>
+    </div>
+  )
+}
+
+function ResetDataSection() {
+  const qc = useQueryClient()
+  const [confirmText, setConfirmText] = useState("")
+  const [selected, setSelected] = useState({ all: true })
+  const [dialogOpen, setDialogOpen] = useState(false)
+
+  const { data: countsData, isLoading, refetch } = useQuery({
+    queryKey: ["settings-data-counts"],
+    queryFn: () => api.get("/settings/data-counts").then(r => r.data),
+  })
+  const counts = countsData?.data || {}
+
+  const resetMutation = useMutation({
+    mutationFn: (payload) => api.post("/settings/reset", payload),
+    onSuccess: (res) => {
+      toast.success(res.data.message || "Data cleared successfully")
+      setDialogOpen(false)
+      setConfirmText("")
+      refetch()
+      qc.invalidateQueries()
+    },
+    onError: (err) => toast.error(err.response?.data?.message || "Reset failed"),
+  })
+
+  const modules = [
+    { key: "employees", label: "Employees", count: counts.employees, desc: "All employee records, attachments & histories" },
+    { key: "attendances", label: "Attendances", count: counts.attendances, desc: "30 days × 2 sessions per employee" },
+    { key: "trainings", label: "Trainings (Courses)", count: counts.trainings, desc: "Master training courses (STCW etc.)" },
+    { key: "training_details", label: "Training Details", count: counts.training_details, desc: "Training detail variants" },
+    { key: "training_monitorings", label: "Training Monitorings", count: counts.training_monitorings, desc: "Trainee enrollment & payment records" },
+    { key: "bills", label: "Bills", count: counts.bills, desc: "All billing records" },
+    { key: "documents", label: "Documents & Folders", count: counts.documents, desc: "Files, folders, versions" },
+    { key: "forms", label: "Forms", count: counts.forms, desc: "Form templates" },
+    { key: "activity_logs", label: "Activity Logs", count: counts.activity_logs, desc: "Audit trail (never delete per spec, but clearable here)" },
+    { key: "notifications", label: "Notifications", count: counts.notifications, desc: "User notifications" },
+  ]
+
+  const totalRecords = Object.values(counts).reduce((a, b) => a + (Number(b) || 0), 0)
+
+  const handleToggle = (key) => {
+    if (key === "all") {
+      setSelected({ all: !selected.all })
+    } else {
+      setSelected(prev => {
+        const next = { ...prev, all: false, [key]: !prev[key] }
+        // If all individual selected, switch to all
+        const allSelected = modules.every(m => next[m.key])
+        if (allSelected) return { all: true }
+        return next
+      })
+    }
+  }
+
+  const getSelectedModules = () => {
+    if (selected.all) return ["all"]
+    return modules.filter(m => selected[m.key]).map(m => m.key)
+  }
+
+  const handleReset = () => {
+    const mods = getSelectedModules()
+    if (mods.length === 0) { toast.error("Select at least one module"); return }
+    if (confirmText !== "RESET") { toast.error("Type RESET to confirm"); return }
+    resetMutation.mutate({ confirm: "RESET", modules: mods })
+  }
+
+  return (
+    <div className="space-y-6">
+      <Card className="border-destructive/50">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-destructive"><AlertTriangle className="h-5 w-5" /> Danger Zone — Reset Data</CardTitle>
+          <CardDescription>
+            Permanently delete transactional data. This action cannot be undone. System config (users, roles, departments, categories, settings) is preserved. Only Super Admin / Administrator with <code>settings.update</code> can reset.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="rounded-lg bg-muted p-4">
+            <div className="flex items-center gap-2 text-sm font-medium"><Database className="h-4 w-4" /> Current Data Counts {isLoading ? "(loading...)" : `— ${totalRecords} total records`}</div>
+            <div className="grid gap-2 md:grid-cols-2 mt-3">
+              {modules.map(m => (
+                <div key={m.key} className="flex items-center justify-between rounded border bg-card p-2">
+                  <div className="flex items-center gap-2">
+                    <input type="checkbox" checked={selected.all || !!selected[m.key]} onChange={() => handleToggle(m.key)} className="rounded" disabled={selected.all && m.key !== "all"} />
+                    <div>
+                      <div className="text-sm font-medium">{m.label}</div>
+                      <div className="text-xs text-muted-foreground">{m.desc}</div>
+                    </div>
+                  </div>
+                  <Badge variant={m.count > 0 ? "destructive" : "secondary"}>{m.count ?? 0}</Badge>
+                </div>
+              ))}
+              <div className="flex items-center gap-2 rounded border bg-card p-2 border-primary/50">
+                <input type="checkbox" checked={!!selected.all} onChange={() => handleToggle("all")} className="rounded" />
+                <div className="text-sm font-bold">All Data (Clear All)</div>
+                <Badge variant="outline" className="ml-auto">All</Badge>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Button variant="destructive" onClick={() => setDialogOpen(true)} disabled={resetMutation.isPending}>
+              <Trash className="mr-2 h-4 w-4" /> Reset Selected Data
+            </Button>
+            <Button variant="outline" onClick={() => refetch()}><RefreshCw className="mr-2 h-4 w-4" /> Refresh Counts</Button>
+          </div>
+          <p className="text-xs text-muted-foreground">Tip: Truncate via <code>SET FOREIGN_KEY_CHECKS=0</code> then <code>TRUNCATE</code> each table. Training monitorings keep snapshot fees for backtracking, but will be deleted on reset.</p>
+        </CardContent>
+      </Card>
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive"><AlertTriangle className="h-5 w-5" /> Confirm Reset</DialogTitle>
+            <DialogDescription>
+              This will permanently delete <strong>{selected.all ? "ALL" : getSelectedModules().join(", ") || "selected"}</strong> data ({selected.all ? totalRecords : modules.filter(m => selected[m.key]).reduce((a,c)=>a+(Number(c.count)||0),0)} records). Type <code>RESET</code> to confirm.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="rounded bg-destructive/10 p-3 text-sm text-destructive">
+              <strong>Warning:</strong> This cannot be undone. All selected records will be truncated. Users, roles, departments and settings are preserved.
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="confirm">Type RESET to confirm</Label>
+              <Input id="confirm" value={confirmText} onChange={e => setConfirmText(e.target.value)} placeholder="RESET" autoFocus />
+            </div>
+            <div className="text-xs text-muted-foreground">Modules: <code>{getSelectedModules().join(", ") || "none"}</code></div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+            <Button variant="destructive" disabled={confirmText !== "RESET" || resetMutation.isPending} onClick={handleReset}>
+              {resetMutation.isPending ? "Resetting..." : "Reset Data"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   )
 }
 

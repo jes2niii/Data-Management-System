@@ -1,5 +1,7 @@
 import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { useDebounce } from "@/hooks/useDebounce"
+import { usePersonalization } from "@/hooks/usePersonalization"
 import { toast } from "sonner"
 import { format } from "date-fns"
 import { Link } from "react-router-dom"
@@ -27,7 +29,7 @@ import {
 import BillFormDialog from "./BillFormDialog"
 import {
   Search, Plus, MoreHorizontal, Pencil, Trash2, CheckCircle2, ChevronLeft,
-  ChevronRight, BarChart3, DollarSign, Receipt,
+  ChevronRight, BarChart3, DollarSign, Receipt, Repeat,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -36,6 +38,7 @@ const statusMap = {
   unpaid: { variant: "warning", label: "Unpaid" },
   overdue: { variant: "destructive", label: "Overdue" },
   canceled: { variant: "secondary", label: "Canceled" },
+  cancelled: { variant: "secondary", label: "Cancelled" },
   pending: { variant: "outline", label: "Pending" },
 }
 
@@ -43,6 +46,7 @@ export default function BillsPage() {
   const queryClient = useQueryClient()
   const { format: formatCurrency } = useCurrency()
   const [search, setSearch] = useState("")
+  const debouncedSearch = useDebounce(search, 300)
   const [statusFilter, setStatusFilter] = useState("all")
   const [categoryFilter, setCategoryFilter] = useState("all")
   const [page, setPage] = useState(1)
@@ -51,14 +55,15 @@ export default function BillsPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [deletingBill, setDeletingBill] = useState(null)
 
-  const perPage = 10
+  const { itemsPerPage } = usePersonalization()
+  const perPage = itemsPerPage || 10
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["bills", search, statusFilter, categoryFilter, page],
+    queryKey: ["bills", debouncedSearch, statusFilter, categoryFilter, page],
     queryFn: () =>
       api.get("/bills", {
         params: {
-          search,
+          search: debouncedSearch || undefined,
           status: statusFilter !== "all" ? statusFilter : undefined,
           category: categoryFilter !== "all" ? categoryFilter : undefined,
           page,
@@ -88,6 +93,7 @@ export default function BillsPage() {
   })
 
   const bills = data?.data?.data || []
+  const totalBills = data?.data?.total || bills.length
   const totalPages = data?.data?.last_page || 1
 
   return (
@@ -98,6 +104,11 @@ export default function BillsPage() {
           <p className="text-muted-foreground">Track and manage billing records</p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" asChild>
+            <Link to="/billing/subscriptions">
+              <Repeat className="mr-2 h-4 w-4" /> Subscriptions
+            </Link>
+          </Button>
           <Button variant="outline" asChild>
             <Link to="/billing/analytics">
               <BarChart3 className="mr-2 h-4 w-4" /> Analytics
@@ -111,7 +122,7 @@ export default function BillsPage() {
 
       <div className="grid gap-4 md:grid-cols-4">
         {[
-          { label: "Total Bills", value: bills.length, icon: Receipt, color: "text-blue-600" },
+          { label: "Total Bills", value: totalBills, icon: Receipt, color: "text-blue-600" },
           { label: "Pending", value: bills.filter((b) => b.status === "unpaid" || b.status === "pending").length, icon: DollarSign, color: "text-yellow-600" },
           { label: "Overdue", value: bills.filter((b) => b.status === "overdue").length, icon: DollarSign, color: "text-red-600" },
           { label: "Paid", value: bills.filter((b) => b.status === "paid").length, icon: CheckCircle2, color: "text-green-600" },
@@ -213,9 +224,7 @@ export default function BillsPage() {
                           {formatCurrency(bill.amount)}
                         </TableCell>
                         <TableCell className="text-muted-foreground">
-                          {bill.due_date
-                            ? format(new Date(bill.due_date), "MMM dd, yyyy")
-                            : "-"}
+                          {bill.due_date ? (() => { try { const d = new Date(bill.due_date); return isNaN(d.getTime()) ? "-" : format(d, "MMM dd, yyyy") } catch { return "-" } })() : "-"}
                         </TableCell>
                         <TableCell>
                           <Badge variant={st.variant}>{st.label}</Badge>

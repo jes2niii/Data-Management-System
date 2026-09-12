@@ -27,6 +27,15 @@ class DatabaseSeeder extends Seeder
         $this->createDefaultEmployeeAttachmentCategories();
         $this->createDefaultAttendanceStatuses();
         $this->createDefaultSettings();
+        $this->call(TrainingCategorySeeder::class);
+        $this->call(TrainingCourseSeeder::class);
+        $this->call(BillSeeder::class);
+        $this->call(EmployeeSeeder::class);
+        $this->call(AttendanceSeeder::class);
+        $this->call(TrainingMonitoringSeeder::class);
+        $this->call(SubscriptionSeeder::class);
+        $this->call(InventorySeeder::class);
+        $this->call(SupplyChainInventorySeeder::class);
     }
 
     private function createRoles(): array
@@ -67,6 +76,14 @@ class DatabaseSeeder extends Seeder
             'settings',
             'activity_logs',
             'roles',
+            'trainings',
+            'training_monitorings',
+            'training_details',
+            'training_price_logs',
+            'subscriptions',
+            'inventory',
+            'inventory_categories',
+            'inventory_suppliers',
         ];
 
         $actions = ['create', 'read', 'update', 'delete', 'export'];

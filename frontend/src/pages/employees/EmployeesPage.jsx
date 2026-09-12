@@ -1,6 +1,8 @@
 import { useState } from "react"
 import { Link } from "react-router-dom"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { useDebounce } from "@/hooks/useDebounce"
+import { usePersonalization } from "@/hooks/usePersonalization"
 import { toast } from "sonner"
 import api from "@/lib/api"
 import { Button } from "@/components/ui/button"
@@ -39,6 +41,7 @@ const statusMap = {
 export default function EmployeesPage() {
   const queryClient = useQueryClient()
   const [search, setSearch] = useState("")
+  const debouncedSearch = useDebounce(search, 300)
   const [departmentFilter, setDepartmentFilter] = useState("all")
   const [statusFilter, setStatusFilter] = useState("all")
   const [page, setPage] = useState(1)
@@ -47,7 +50,8 @@ export default function EmployeesPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [deletingEmployee, setDeletingEmployee] = useState(null)
 
-  const perPage = 10
+  const { itemsPerPage } = usePersonalization()
+  const perPage = itemsPerPage || 10
 
   const { data: departmentsData } = useQuery({
     queryKey: ["departments"],
@@ -55,11 +59,11 @@ export default function EmployeesPage() {
   })
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["employees", search, departmentFilter, statusFilter, page],
+    queryKey: ["employees", debouncedSearch, departmentFilter, statusFilter, page, perPage],
     queryFn: () =>
       api.get("/employees", {
         params: {
-          search,
+          search: debouncedSearch || undefined,
           department_id: departmentFilter !== "all" ? departmentFilter : undefined,
           status: statusFilter !== "all" ? statusFilter : undefined,
           page,

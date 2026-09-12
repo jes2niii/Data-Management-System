@@ -120,3 +120,23 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Personalization: density */
+[data-density="compact"] .card {
+  --card-padding: 0.75rem;
+}
+[data-density="compact"] main {
+  padding: 1rem !important;
+}
+[data-density="compact"] .card-header {
+  padding: 0.75rem 1rem;
+}
+[data-density="compact"] .card-content {
+  padding: 0 1rem 0.75rem;
+}
+
+/* Personalization: reduced animations */
+[data-animations="false"] * {
+  transition-duration: 0s !important;
+  animation-duration: 0s !important;
+}

@@ -27,7 +27,8 @@ export function AuthProvider({ children }) {
     localStorage.setItem("access_token", token)
     localStorage.setItem("user", JSON.stringify(user))
     setUser(user)
-    window.location.href = "/dashboard"
+    const defaultPage = localStorage.getItem("defaultPage") || "/dashboard"
+    window.location.href = defaultPage
   }, [])
 
   const logout = useCallback(() => {
