@@ -20,7 +20,8 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
-import { Camera, Save, Plus, Pencil, Trash2, AlertTriangle, Trash, RefreshCw, Database, Palette, Sun, Moon, Monitor, Layout, Zap, Globe, Bell, Check } from "lucide-react"
+import { Camera, Save, Plus, Pencil, Trash2, AlertTriangle, Trash, RefreshCw, Database, Palette, Sun, Moon, Monitor, Layout, Zap, Globe, Bell, Check, X } from "lucide-react"
+import { resolveStorageUrl } from "@/hooks/useBranding"
 import RolesPermissionsPage from "@/pages/roles/RolesPermissionsPage"
 import TrainingsSettings from "./TrainingsSettings"
 import { useLanguage } from "@/contexts/LanguageContext"
@@ -66,9 +67,11 @@ export default function SettingsPage() {
 }
 
 function CompanyProfileSection({ settings }) {
+  const qc = useQueryClient()
   const fileInputRef = useRef(null)
   const [logo, setLogo] = useState(null)
   const [logoPreview, setLogoPreview] = useState(null)
+  const [removeLogo, setRemoveLogo] = useState(false)
   const [form, setForm] = useState({
     company_name: settings?.company_name || "",
     company_address: settings?.company_address || "",
@@ -83,31 +86,63 @@ function CompanyProfileSection({ settings }) {
       company_email: settings?.company_email || "",
       company_phone: settings?.company_phone || "",
     })
-    setLogoPreview(settings?.company_logo || null)
+    setLogoPreview(resolveStorageUrl(settings?.company_logo_url || settings?.company_logo) || null)
+    setLogo(null)
+    setRemoveLogo(false)
   }, [settings])
+
+  // Revoke blob preview URLs to avoid memory leaks.
+  useEffect(() => {
+    return () => {
+      if (logoPreview?.startsWith("blob:")) URL.revokeObjectURL(logoPreview)
+    }
+  }, [logoPreview])
 
   const mutation = useMutation({
     mutationFn: (formData) => api.post("/settings/company-profile", formData, {
       headers: { "Content-Type": "multipart/form-data" },
     }),
-    onSuccess: () => toast.success("Company profile updated"),
+    onSuccess: () => {
+      toast.success("Company profile updated — logo applied across the system")
+      qc.invalidateQueries({ queryKey: ["settings"] })
+      qc.invalidateQueries({ queryKey: ["branding"] })
+      window.dispatchEvent(new Event("branding-changed"))
+    },
     onError: (err) => toast.error(err.response?.data?.message || "Failed to update"),
   })
 
   const handleSubmit = (e) => {
     e.preventDefault()
     const formData = new FormData()
-    Object.entries(form).forEach(([k, v]) => formData.append(k, v))
+    Object.entries(form).forEach(([k, v]) => formData.append(k, v ?? ""))
     if (logo) formData.append("logo", logo)
+    if (removeLogo) formData.append("remove_logo", "1")
     mutation.mutate(formData)
   }
 
   const handleLogoChange = (e) => {
     const file = e.target.files?.[0]
-    if (file) {
-      setLogo(file)
-      setLogoPreview(URL.createObjectURL(file))
+    if (!file) return
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please choose an image file (PNG, JPG, SVG, WebP).")
+      return
     }
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error("Logo must be 2 MB or smaller.")
+      return
+    }
+    if (logoPreview?.startsWith("blob:")) URL.revokeObjectURL(logoPreview)
+    setLogo(file)
+    setRemoveLogo(false)
+    setLogoPreview(URL.createObjectURL(file))
+  }
+
+  const handleRemoveLogo = () => {
+    if (logoPreview?.startsWith("blob:")) URL.revokeObjectURL(logoPreview)
+    setLogo(null)
+    setLogoPreview(null)
+    setRemoveLogo(true)
+    if (fileInputRef.current) fileInputRef.current.value = ""
   }
 
   return (
@@ -115,13 +150,13 @@ function CompanyProfileSection({ settings }) {
       <form onSubmit={handleSubmit}>
         <CardHeader>
           <CardTitle>Company Profile</CardTitle>
-          <CardDescription>Manage company information and branding</CardDescription>
+          <CardDescription>Manage company information and branding — the logo updates the sidebar, login page, and browser tab.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex justify-center">
             <div className="relative">
-              <Avatar className="h-24 w-24 rounded-lg">
-                <AvatarImage src={logoPreview || ""} />
+              <Avatar className="h-24 w-24 rounded-lg border bg-white">
+                <AvatarImage src={logoPreview || ""} className="object-contain p-1" />
                 <AvatarFallback className="rounded-lg text-xl">
                   {(form.company_name || "C").charAt(0)}
                 </AvatarFallback>
@@ -129,19 +164,31 @@ function CompanyProfileSection({ settings }) {
               <button
                 type="button"
                 className="absolute bottom-0 right-0 rounded-full bg-primary p-1.5 text-primary-foreground shadow"
+                title="Upload logo"
                 onClick={() => fileInputRef.current?.click()}
               >
                 <Camera className="h-3.5 w-3.5" />
               </button>
+              {(logoPreview || logo) && (
+                <button
+                  type="button"
+                  className="absolute -right-2 -top-2 rounded-full bg-destructive p-1 text-destructive-foreground shadow"
+                  title="Remove logo"
+                  onClick={handleRemoveLogo}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*"
+                accept="image/png,image/jpeg,image/svg+xml,image/webp"
                 className="hidden"
                 onChange={handleLogoChange}
               />
             </div>
           </div>
+          <p className="text-center text-xs text-muted-foreground">PNG, JPG, SVG or WebP, up to 2 MB. Best with a square or wide logo on a white/transparent background.</p>
           <div className="space-y-2">
             <Label htmlFor="company_name">Company Name</Label>
             <Input
@@ -429,6 +476,7 @@ const categoryEndpoints = {
   "Document Categories": { endpoint: "/document-categories", label: "Document Category" },
   "Folder Categories": { endpoint: "/folder-categories", label: "Folder Category" },
   "Emp. Attach. Categories": { endpoint: "/employee-attachment-categories", label: "Attachment Category" },
+  "Book Categories": { endpoint: "/book-categories", label: "Book Category" },
 }
 
 function CategoriesManagement() {
@@ -465,13 +513,27 @@ function PersonalizationSection() {
   const [pushNotif, setPushNotif] = useState(() => localStorage.getItem("pushNotif") !== "false")
 
   const accentOptions = [
-    { value: "default", label: "Default", color: "hsl(var(--primary))", preview: "bg-[oklch(0.205_0.042_265.755)] dark:bg-[oklch(0.922_0_0)] border-2 border-dashed border-primary/20" },
-    { value: "blue", label: "Ocean Blue", color: "#3b82f6", preview: "bg-blue-500" },
-    { value: "emerald", label: "Emerald", color: "#10b981", preview: "bg-emerald-500" },
-    { value: "violet", label: "Violet", color: "#8b5cf6", preview: "bg-violet-500" },
-    { value: "rose", label: "Rose", color: "#f43f5e", preview: "bg-rose-500" },
-    { value: "amber", label: "Amber", color: "#f59e0b", preview: "bg-amber-500" },
+    { value: "default", label: "SEATECH Navy", color: "#130a5c", foreground: "#ffffff", ring: "#130a5c", preview: "bg-[#130a5c] ring-2 ring-[#ffcc0a]/60" },
+    { value: "seatech-gold", label: "SEATECH Gold", color: "#ffcc0a", foreground: "#130a5c", ring: "#ffcc0a", preview: "bg-[#ffcc0a]" },
+    { value: "blue", label: "Ocean Blue", color: "#3b82f6", foreground: "#ffffff", ring: "#3b82f6", preview: "bg-blue-500" },
+    { value: "emerald", label: "Emerald", color: "#10b981", foreground: "#ffffff", ring: "#10b981", preview: "bg-emerald-500" },
+    { value: "violet", label: "Violet", color: "#8b5cf6", foreground: "#ffffff", ring: "#8b5cf6", preview: "bg-violet-500" },
+    { value: "rose", label: "Rose", color: "#f43f5e", foreground: "#ffffff", ring: "#f43f5e", preview: "bg-rose-500" },
+    { value: "amber", label: "Amber", color: "#f59e0b", foreground: "#130a5c", ring: "#f59e0b", preview: "bg-amber-500" },
   ]
+
+  const previewAccent = (value) => {
+    const opt = accentOptions.find(a => a.value === value)
+    if (!opt || value === "default") {
+      document.documentElement.style.removeProperty("--primary")
+      document.documentElement.style.removeProperty("--primary-foreground")
+      document.documentElement.style.removeProperty("--ring")
+    } else {
+      document.documentElement.style.setProperty("--primary", opt.color)
+      document.documentElement.style.setProperty("--primary-foreground", opt.foreground)
+      document.documentElement.style.setProperty("--ring", opt.ring)
+    }
+  }
 
   const applyTheme = (newTheme) => {
     setTheme(newTheme)
@@ -516,12 +578,8 @@ function PersonalizationSection() {
     window.dispatchEvent(new Event("personalization-changed"))
     window.dispatchEvent(new StorageEvent("storage", { key: "itemsPerPage", newValue: itemsPerPage }))
     toast.success(getTranslation(language, "settings.saved"))
-    // Apply accent immediately
-    if (accent !== "default") {
-      document.documentElement.style.setProperty("--primary", accentOptions.find(a => a.value === accent)?.color || "hsl(var(--primary))")
-    } else {
-      document.documentElement.style.removeProperty("--primary")
-    }
+    // Apply accent immediately (with contrast-correct foreground)
+    previewAccent(accent)
   }
 
   const handleReset = () => {
@@ -598,7 +656,7 @@ function PersonalizationSection() {
                 {accentOptions.map(opt => (
                   <button
                     key={opt.value}
-                    onClick={() => setAccent(opt.value)}
+                    onClick={() => { setAccent(opt.value); previewAccent(opt.value) }}
                     className={`flex flex-col items-center gap-1.5 rounded-lg border-2 p-2.5 transition-all ${accent === opt.value ? "border-primary bg-primary/5" : "border-muted hover:border-primary/50"}`}
                   >
                     <div className={`h-7 w-7 rounded-full ${opt.preview} border shadow-sm`} />

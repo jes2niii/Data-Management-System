@@ -26,7 +26,7 @@ export default function FilePreviewDialog({ open, onClose, file }) {
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
       <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
         <DialogHeader className="flex flex-row items-center justify-between">
-          <DialogTitle className="truncate">{file.name}</DialogTitle>
+          <DialogTitle className="whitespace-normal break-all">{file.name}</DialogTitle>
           {fileUrl && (
             <Button variant="outline" size="sm" asChild>
               <a href={fileUrl} download={file.name}>

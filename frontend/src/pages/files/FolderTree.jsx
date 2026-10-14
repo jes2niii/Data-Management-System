@@ -66,7 +66,7 @@ function TreeNode({ folder, selectedId, onSelect, onEdit, onDelete, onCreateSub,
         ) : (
           <Folder className="h-4 w-4 shrink-0 text-yellow-600" />
         )}
-        <span className="flex-1 truncate">{folder.name}</span>
+        <span className="flex-1 whitespace-normal break-words" title={folder.name}>{folder.name}</span>
         <DropdownMenu>
           <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
             <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100">

@@ -171,7 +171,7 @@ export default function FormsPage() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {form.description && (
-                    <p className="text-sm text-muted-foreground line-clamp-2">
+                    <p className="text-sm text-muted-foreground whitespace-normal break-words">
                       {form.description}
                     </p>
                   )}

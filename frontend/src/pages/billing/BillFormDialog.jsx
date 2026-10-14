@@ -20,7 +20,7 @@ import { Upload } from "lucide-react"
 const billSchema = z.object({
   name: z.string().min(1, "Bill name is required"),
   bill_category_id: z.string().min(1, "Category is required"),
-  provider: z.string().min(1, "Provider is required"),
+  provider: z.string().optional(),
   reference_number: z.string().optional(),
   amount: z.string().min(1, "Amount is required"),
   billing_date: z.string().optional(),
@@ -182,8 +182,8 @@ export default function BillFormDialog({ open, onClose, bill, onSuccess }) {
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="provider">Provider *</Label>
-              <Input id="provider" {...form.register("provider")} />
+              <Label htmlFor="provider">Provider</Label>
+              <Input id="provider" placeholder="e.g., Meralco, PLDT (optional)" {...form.register("provider")} />
               {form.formState.errors.provider && (
                 <p className="text-sm text-destructive">{form.formState.errors.provider.message}</p>
               )}

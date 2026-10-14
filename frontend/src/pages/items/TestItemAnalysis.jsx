@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
 import { Plus, Trash2, Search, TrendingUp, Play, Users, Pencil } from "lucide-react"
+import { chartTooltipContentStyle, chartTooltipLabelStyle, chartTooltipItemStyle, chartBarCursor } from "@/lib/chart-theme"
 
 const actionColors = { Retain: "success", Revise: "warning", Reject: "destructive" }
 const dfColors = {
@@ -387,9 +388,9 @@ export default function TestItemAnalysis() {
                     <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                     <XAxis dataKey="name" className="text-xs" />
                     <YAxis domain={[0, 1]} />
-                    <Tooltip />
-                    <Bar dataKey="difficulty" fill="hsl(var(--primary))" name="Difficulty" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="discrimination" fill="#f59e0b" name="Discrimination" radius={[4, 4, 0, 0]} />
+                    <Tooltip contentStyle={chartTooltipContentStyle} labelStyle={chartTooltipLabelStyle} itemStyle={chartTooltipItemStyle} cursor={chartBarCursor} />
+                    <Bar dataKey="difficulty" fill="var(--primary)" name="Difficulty" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="discrimination" fill="var(--chart-2)" name="Discrimination" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               )}

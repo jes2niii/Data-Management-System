@@ -7,14 +7,47 @@ use App\Models\Setting;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 
 class SettingsController extends Controller
 {
     public function index()
     {
-        $settings = Setting::all()->pluck('value', 'key');
+        $settings = Setting::all()->pluck('value', 'key')->toArray();
+        $settings['company_logo_url'] = $this->logoUrl($settings['company_logo'] ?? null);
 
         return $this->success($settings);
+    }
+
+    /**
+     * Public branding for login page / favicon (no auth required).
+     */
+    public function branding()
+    {
+        $settings = Setting::whereIn('key', ['company_name', 'company_logo'])->pluck('value', 'key')->toArray();
+
+        return $this->success([
+            'company_name' => $settings['company_name'] ?? 'SEATECH',
+            'company_logo' => $settings['company_logo'] ?? null,
+            'company_logo_url' => $this->logoUrl($settings['company_logo'] ?? null),
+        ]);
+    }
+
+    private function logoUrl($path)
+    {
+        if (!$path) {
+            return null;
+        }
+        // Already a full URL? return as-is.
+        if (preg_match('#^https?://#i', $path)) {
+            return $path;
+        }
+        // Stored as "logos/xxx.jpg" -> public "/storage/logos/xxx.jpg".
+        $relative = str_starts_with($path, 'storage/')
+            ? '/' . $path
+            : '/storage/' . ltrim($path, '/');
+
+        return $relative;
     }
 
     public function update(Request $request)
@@ -45,10 +78,34 @@ class SettingsController extends Controller
 
     public function updateCompanyProfile(Request $request)
     {
+        $request->validate([
+            'company_name' => 'nullable|string|max:255',
+            'company_address' => 'nullable|string|max:500',
+            'company_email' => 'nullable|email|max:255',
+            'company_phone' => 'nullable|string|max:50',
+            'logo' => 'nullable|image|mimes:png,jpg,jpeg,svg,webp|max:2048',
+            'remove_logo' => 'nullable|boolean',
+        ]);
+
         $keys = ['company_name', 'company_address', 'company_email', 'company_phone'];
         $fields = $request->only($keys);
 
-        if ($request->hasFile('logo')) {
+        if ($request->boolean('remove_logo')) {
+            $existing = Setting::where('key', 'company_logo')->first();
+            if ($existing?->value && !preg_match('#^https?://#i', $existing->value)) {
+                Storage::disk('public')->delete($existing->value);
+            }
+            Setting::updateOrCreate(['key' => 'company_logo'], [
+                'value' => null,
+                'group' => 'general',
+                'type' => 'image',
+            ]);
+        } elseif ($request->hasFile('logo')) {
+            // Delete the old logo so storage doesn't fill with orphans.
+            $existing = Setting::where('key', 'company_logo')->first();
+            if ($existing?->value && !preg_match('#^https?://#i', $existing->value)) {
+                Storage::disk('public')->delete($existing->value);
+            }
             $path = $request->file('logo')->store('logos', 'public');
             Setting::updateOrCreate(['key' => 'company_logo'], [
                 'value' => $path,
@@ -67,7 +124,10 @@ class SettingsController extends Controller
             }
         }
 
-        return $this->success(Setting::all()->pluck('value', 'key'), 'Company profile updated');
+        $settings = Setting::all()->pluck('value', 'key')->toArray();
+        $settings['company_logo_url'] = $this->logoUrl($settings['company_logo'] ?? null);
+
+        return $this->success($settings, 'Company profile updated');
     }
 
     public function updatePreferences(Request $request)

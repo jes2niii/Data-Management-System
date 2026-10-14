@@ -14,12 +14,25 @@ export default defineConfig({
     },
   },
   server: {
+    // Listen on all interfaces so `npm run dev -- --host` works on local network
+    // e.g., http://192.168.x.x:5173 from phones / other PCs
+    host: true,
     port: 5173,
+    strictPort: true,
     proxy: {
       '/api': {
         target: 'http://localhost:8000',
         changeOrigin: true,
       },
+      // Proxy storage files in dev so relative /storage URLs work on localhost
+      '/storage': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
     },
+  },
+  preview: {
+    host: true,
+    port: 5173,
   },
 })

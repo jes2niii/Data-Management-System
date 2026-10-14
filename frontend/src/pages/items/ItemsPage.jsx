@@ -17,6 +17,7 @@ import { Separator } from "@/components/ui/separator"
 import { Progress } from "@/components/ui/progress"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from "recharts"
 import { Plus, Pencil, Trash2, Search, ClipboardList, Star, TrendingUp, Users } from "lucide-react"
+import { chartTooltipContentStyle, chartTooltipLabelStyle, chartTooltipItemStyle, chartBarCursor } from "@/lib/chart-theme"
 import { useSearchParams } from "react-router-dom"
 import TestItemAnalysis from "./TestItemAnalysis"
 
@@ -352,7 +353,7 @@ export default function ItemsPage() {
           </div>
           <div className="space-y-6 max-h-[60vh] overflow-y-auto">
             {sectionsAnalysis.map((sec, si) => {
-              const COLORS = ["#3b82f6", "#22c55e", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4", "#f97316"]
+              const COLORS = ["#130a5c", "#eab308", "#0e9f8a", "#3b82f6", "#f97316", "#8b5cf6", "#ec4899", "#06b6d4"]
               return (
                 <div key={si}>
                   <h4 className="font-semibold text-sm mb-2">{sec.title || `Section ${si + 1}`} <span className="text-muted-foreground font-normal">(Avg: {sec.average?.toFixed(1) || "0.0"})</span></h4>
@@ -375,9 +376,9 @@ export default function ItemsPage() {
                                 <ResponsiveContainer width="100%" height={200}>
                                   <PieChart>
                                     <Pie data={chartData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={70} label={({ value }) => value > 0 ? value : ""}>
-                                      {chartData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                                      {chartData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} stroke="var(--background)" strokeWidth={2} />)}
                                     </Pie>
-                                    <Tooltip />
+                                    <Tooltip contentStyle={chartTooltipContentStyle} labelStyle={chartTooltipLabelStyle} itemStyle={chartTooltipItemStyle} />
                                   </PieChart>
                                 </ResponsiveContainer>
                               ) : chartType === "radar" ? (
@@ -386,7 +387,7 @@ export default function ItemsPage() {
                                     <PolarGrid />
                                     <PolarAngleAxis dataKey="name" className="text-xs" />
                                     <PolarRadiusAxis />
-                                    <Radar dataKey="value" stroke="hsl(var(--primary))" fill="hsl(var(--primary))" fillOpacity={0.3} />
+                                    <Radar dataKey="value" stroke="var(--primary)" fill="var(--primary)" fillOpacity={0.3} />
                                   </RadarChart>
                                 </ResponsiveContainer>
                               ) : (
@@ -395,8 +396,8 @@ export default function ItemsPage() {
                                     <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                                     <XAxis dataKey="name" className="text-xs" />
                                     <YAxis allowDecimals={false} />
-                                    <Tooltip />
-                                    <Bar dataKey="value" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                                    <Tooltip contentStyle={chartTooltipContentStyle} labelStyle={chartTooltipLabelStyle} itemStyle={chartTooltipItemStyle} cursor={chartBarCursor} />
+                                    <Bar dataKey="value" fill="var(--primary)" radius={[4, 4, 0, 0]} />
                                   </BarChart>
                                 </ResponsiveContainer>
                               )}

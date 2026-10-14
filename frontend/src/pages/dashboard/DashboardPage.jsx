@@ -10,6 +10,7 @@ import { Separator } from "@/components/ui/separator"
 import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from "recharts"
+import { chartTooltipContentStyle, chartTooltipLabelStyle, chartTooltipItemStyle, chartBarCursor, chartLineCursor, chartTickStyle } from "@/lib/chart-theme"
 import {
   Users,
   UserCircle,
@@ -32,7 +33,8 @@ function formatFileSize(bytes) {
   const num = Number(bytes)
   if (num < 1024) return num + " B"
   if (num < 1024 * 1024) return (num / 1024).toFixed(1) + " KB"
-  return (num / (1024 * 1024)).toFixed(1) + " MB"
+  if (num < 1024 * 1024 * 1024) return (num / (1024 * 1024)).toFixed(1) + " MB"
+  return (num / (1024 * 1024 * 1024)).toFixed(2) + " GB"
 }
 
 function formatNumber(n) {
@@ -117,7 +119,7 @@ export default function DashboardPage() {
     total: Number(item.total || 0),
     ...Object.fromEntries(monthlyCourseCourses.map((short) => [short, Number(item[short] || 0)])),
   }))
-  const courseStackColors = ["#10b981", "#3b82f6", "#f59e0b", "#8b5cf6", "#ef4444"]
+  const courseStackColors = ["#130a5c", "#eab308", "#0e9f8a", "#3b82f6", "#f97316"]
 
   const recentActivities = (dashboard.recent_activities || []).map((log) => ({
     user: log.user?.name || "System",
@@ -134,9 +136,13 @@ export default function DashboardPage() {
     date: doc.created_at ? format(new Date(doc.created_at), "yyyy-MM-dd") : "-",
   }))
 
-  const totalStorage = dashboard.storage_usage || 0
-  const storageGB = (totalStorage / (1024 * 1024 * 1024)).toFixed(1)
-  const storagePercent = Math.min(Math.round((totalStorage / (10 * 1024 * 1024 * 1024)) * 100), 100)
+  const totalStorage = Number(dashboard.storage_usage || 0)
+  const storageQuota = 10 * 1024 * 1024 * 1024 // 10 GB
+  const storagePercentRaw = (totalStorage / storageQuota) * 100
+  const storagePercent = Math.min(storagePercentRaw, 100)
+  // Never round small uploads down to "0%" — show 2 decimals below 1%, 1 decimal below 10%
+  const storagePercentLabel = totalStorage === 0 ? "0%" : storagePercent < 1 ? `${storagePercent.toFixed(2)}%` : storagePercent < 10 ? `${storagePercent.toFixed(1)}%` : `${Math.round(storagePercent)}%`
+  const storageDisplay = (totalStorage === 0 ? "0 B" : formatFileSize(totalStorage)) + " used of 10 GB"
 
   return (
     <div className="space-y-6">
@@ -228,12 +234,12 @@ export default function DashboardPage() {
                   <XAxis dataKey="month" className="text-xs" />
                   <YAxis className="text-xs" tickFormatter={(v) => `${symbol}${(v/1000).toFixed(0)}k`} />
                   <Tooltip
-                    contentStyle={{ backgroundColor: "hsl(var(--popover))", border: "1px solid hsl(var(--border))", borderRadius: "8px" }}
+                    contentStyle={chartTooltipContentStyle} labelStyle={chartTooltipLabelStyle} itemStyle={chartTooltipItemStyle} cursor={chartBarCursor}
                     formatter={(value, name) => [`${symbol}${Number(value).toLocaleString()}`, name === 'revenue' ? 'Revenue' : name === 'collected' ? 'Collected' : 'Outstanding']}
                   />
-                  <Bar dataKey="revenue" fill="#10b981" name="revenue" radius={[4,4,0,0]} />
-                  <Bar dataKey="collected" fill="#3b82f6" name="collected" radius={[4,4,0,0]} />
-                  <Bar dataKey="outstanding" fill="#f59e0b" name="outstanding" radius={[4,4,0,0]} />
+                  <Bar dataKey="revenue" fill="#130a5c" name="revenue" radius={[4,4,0,0]} />
+                  <Bar dataKey="collected" fill="#eab308" name="collected" radius={[4,4,0,0]} />
+                  <Bar dataKey="outstanding" fill="#a8a3c7" name="outstanding" radius={[4,4,0,0]} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
@@ -254,10 +260,14 @@ export default function DashboardPage() {
                   <XAxis type="number" className="text-xs" tickFormatter={(v) => `${symbol}${(v/1000).toFixed(0)}k`} />
                   <YAxis dataKey="name" type="category" width={110} className="text-xs" tick={{ fontSize: 11 }} />
                   <Tooltip
-                    contentStyle={{ backgroundColor: "hsl(var(--popover))", border: "1px solid hsl(var(--border))", borderRadius: "8px" }}
+                    contentStyle={{ ...chartTooltipContentStyle, maxWidth: 360, whiteSpace: "normal", wordBreak: "break-word" }}
+                    labelStyle={chartTooltipLabelStyle}
+                    itemStyle={{ ...chartTooltipItemStyle, whiteSpace: "normal", wordBreak: "break-word" }}
+                    cursor={chartBarCursor}
+                    labelFormatter={(label, payload) => payload?.[0]?.payload?.course || label}
                     formatter={(value, name, props) => [`${symbol}${Number(value).toLocaleString()}`, props.payload.course]}
                   />
-                  <Bar dataKey="revenue" fill="#10b981" radius={[0,4,4,0]} />
+                  <Bar dataKey="revenue" fill="#130a5c" radius={[0,4,4,0]} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
@@ -281,7 +291,7 @@ export default function DashboardPage() {
                 <XAxis dataKey="month" className="text-xs" />
                 <YAxis className="text-xs" allowDecimals={false} />
                 <Tooltip
-                  contentStyle={{ backgroundColor: "hsl(var(--popover))", border: "1px solid hsl(var(--border))", borderRadius: "8px" }}
+                  contentStyle={chartTooltipContentStyle} labelStyle={chartTooltipLabelStyle} itemStyle={chartTooltipItemStyle} cursor={chartBarCursor}
                   formatter={(value, name) => {
                     const idx = monthlyCourseCourses.indexOf(name)
                     const full = idx >= 0 ? monthlyCourseFull[idx] : name
@@ -299,8 +309,8 @@ export default function DashboardPage() {
                 <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                 <XAxis dataKey="month" className="text-xs" />
                 <YAxis className="text-xs" allowDecimals={false} />
-                <Tooltip contentStyle={{ backgroundColor: "hsl(var(--popover))", border: "1px solid hsl(var(--border))", borderRadius: "8px" }} />
-                <Bar dataKey="count" fill="#10b981" name="Enrollments" radius={[4,4,0,0]} />
+                <Tooltip contentStyle={chartTooltipContentStyle} labelStyle={chartTooltipLabelStyle} itemStyle={chartTooltipItemStyle} cursor={chartBarCursor} />
+                <Bar dataKey="count" fill="#130a5c" name="Enrollments" radius={[4,4,0,0]} />
               </BarChart>
             </ResponsiveContainer>
           ) : (
@@ -517,10 +527,10 @@ export default function DashboardPage() {
                   <XAxis dataKey="month" className="text-xs" />
                   <YAxis className="text-xs" tickFormatter={(v) => `${symbol}${(v / 1000).toFixed(0)}K`} />
                   <Tooltip
-                    contentStyle={{ backgroundColor: "hsl(var(--popover))", border: "1px solid hsl(var(--border))", borderRadius: "8px" }}
+                    contentStyle={chartTooltipContentStyle} labelStyle={chartTooltipLabelStyle} itemStyle={chartTooltipItemStyle} cursor={chartBarCursor}
                     formatter={(value) => [`${symbol}${Number(value).toLocaleString()}`, "Amount"]}
                   />
-                  <Bar dataKey="amount" fill="#10b981" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="amount" fill="#130a5c" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
@@ -540,12 +550,12 @@ export default function DashboardPage() {
               <ResponsiveContainer width="100%" height={300}>
                 <LineChart data={uploadData}>
                   <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                  <XAxis dataKey="month" className="text-xs" />
-                  <YAxis className="text-xs" allowDecimals={false} />
+                  <XAxis dataKey="month" className="text-xs" tick={chartTickStyle} />
+                  <YAxis className="text-xs" allowDecimals={false} tick={chartTickStyle} />
                   <Tooltip
-                    contentStyle={{ backgroundColor: "hsl(var(--popover))", border: "1px solid hsl(var(--border))", borderRadius: "8px" }}
+                    contentStyle={chartTooltipContentStyle} labelStyle={chartTooltipLabelStyle} itemStyle={chartTooltipItemStyle} cursor={chartLineCursor}
                   />
-                  <Line type="monotone" dataKey="documents" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="documents" stroke="var(--primary)" strokeWidth={2} dot={false} activeDot={{ r: 5, fill: "var(--chart-2)", stroke: "var(--primary)" }} />
                 </LineChart>
               </ResponsiveContainer>
             ) : (
@@ -603,8 +613,8 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="text-center">
-              <p className="text-3xl font-bold">{storagePercent}%</p>
-              <p className="text-xs text-muted-foreground">{storageGB} GB used</p>
+              <p className="text-3xl font-bold">{storagePercentLabel}</p>
+              <p className="text-xs text-muted-foreground">{storageDisplay}</p>
             </div>
             <Progress value={storagePercent} className="h-2" />
             <Separator />

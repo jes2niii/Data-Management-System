@@ -36,6 +36,7 @@ class DatabaseSeeder extends Seeder
         $this->call(SubscriptionSeeder::class);
         $this->call(InventorySeeder::class);
         $this->call(SupplyChainInventorySeeder::class);
+        $this->call(BookSeeder::class);
     }
 
     private function createRoles(): array
@@ -84,6 +85,8 @@ class DatabaseSeeder extends Seeder
             'inventory',
             'inventory_categories',
             'inventory_suppliers',
+            'book_inventories',
+            'book_categories',
         ];
 
         $actions = ['create', 'read', 'update', 'delete', 'export'];

@@ -61,7 +61,7 @@ export default function ActivityLogsPage() {
 
   const handleExport = async () => {
     try {
-      const response = await api.get("/activity-logs/export", {
+      const response = await api.get("/activity-logs/export/csv", {
         params: {
           search,
           module: moduleFilter !== "all" ? moduleFilter : undefined,
@@ -210,7 +210,7 @@ export default function ActivityLogsPage() {
                           <Badge variant="outline">{log.module || "-"}</Badge>
                         </TableCell>
                         <TableCell className="capitalize">{log.action || "-"}</TableCell>
-                        <TableCell className="max-w-[250px] truncate">
+                        <TableCell className="min-w-[220px] max-w-[420px] whitespace-normal break-words">
                           {log.description || "-"}
                         </TableCell>
                         <TableCell>

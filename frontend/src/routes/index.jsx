@@ -26,6 +26,7 @@ const ItemsPage = lazy(() => import("@/pages/items/ItemsPage"))
 const AttendancePage = lazy(() => import("@/pages/attendance/AttendancePage"))
 const TrainingMonitoringPage = lazy(() => import("@/pages/training/TrainingMonitoringPage"))
 const InventoryPage = lazy(() => import("@/pages/inventory/InventoryPage"))
+const BookInventoryPage = lazy(() => import("@/pages/books/BookInventoryPage"))
 
 function SuspenseFallback() {
   return (
@@ -120,6 +121,7 @@ export const router = createBrowserRouter([
           { path: "training", element: <Suspense fallback={<SuspenseFallback />}><TrainingMonitoringPage /></Suspense> },
           { path: "training-monitoring", element: <Navigate to="/training" replace /> },
           { path: "inventory", element: <Suspense fallback={<SuspenseFallback />}><InventoryPage /></Suspense> },
+          { path: "books", element: <Suspense fallback={<SuspenseFallback />}><BookInventoryPage /></Suspense> },
           { path: "*", element: <NotFound /> },
         ],
       },

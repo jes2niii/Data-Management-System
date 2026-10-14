@@ -69,7 +69,19 @@ class DashboardController extends Controller
                 ->pluck('count', 'status'),
         ];
 
-        $storageUsage = Document::sum('file_size');
+        // Count ALL uploaded files (documents alone hid book/form/attachment uploads)
+        $storageUsage = (int) Document::sum('file_size')
+            + (int) \App\Models\DocumentVersion::sum('file_size')
+            + (int) \App\Models\BookInventory::sum('file_size')
+            + (int) \App\Models\EmployeeAttachment::sum('file_size')
+            + (int) \App\Models\BillAttachment::sum('file_size');
+        $storageBreakdown = [
+            'documents' => (int) Document::sum('file_size'),
+            'document_versions' => (int) \App\Models\DocumentVersion::sum('file_size'),
+            'books' => (int) \App\Models\BookInventory::sum('file_size'),
+            'employee_attachments' => (int) \App\Models\EmployeeAttachment::sum('file_size'),
+            'bill_attachments' => (int) \App\Models\BillAttachment::sum('file_size'),
+        ];
 
         $userLoginStats = User::selectRaw('DATE(last_login_at) as date, COUNT(*) as count')
             ->whereNotNull('last_login_at')
@@ -244,6 +256,7 @@ class DashboardController extends Controller
             'document_upload_data' => $documentUploadData,
             'employee_stats' => $employeeStats,
             'storage_usage' => $storageUsage,
+            'storage_breakdown' => $storageBreakdown,
             'user_login_stats' => $userLoginStats,
             'training_stats' => $trainingStats,
             'inventory_stats' => $inventoryStats,

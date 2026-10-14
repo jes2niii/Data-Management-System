@@ -37,7 +37,16 @@ class Employee extends Model
 
     public function getPhotoUrlAttribute()
     {
-        return $this->photo ? asset('storage/' . $this->photo) : null;
+        if (!$this->photo) return null;
+        try {
+            $request = request();
+            if ($request && $request->getHost()) {
+                return $request->getSchemeAndHttpHost() . '/storage/' . ltrim($this->photo, '/');
+            }
+        } catch (\Throwable $e) {
+            // fall through to asset()
+        }
+        return asset('storage/' . $this->photo);
     }
 
     public function getEmergencyContactNameAttribute()

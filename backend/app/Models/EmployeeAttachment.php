@@ -22,7 +22,16 @@ class EmployeeAttachment extends Model
 
     public function getUrlAttribute()
     {
-        return $this->file_path ? asset('storage/' . $this->file_path) : null;
+        if (!$this->file_path) return null;
+        try {
+            $request = request();
+            if ($request && $request->getHost()) {
+                return $request->getSchemeAndHttpHost() . '/storage/' . ltrim($this->file_path, '/');
+            }
+        } catch (\Throwable $e) {
+            // fall through to asset()
+        }
+        return asset('storage/' . $this->file_path);
     }
 
     public function getSizeAttribute($value)

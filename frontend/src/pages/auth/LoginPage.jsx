@@ -1,10 +1,11 @@
 import { useState } from "react"
 import { useAuth } from "@/contexts/AuthContext"
+import { useBranding } from "@/hooks/useBranding"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { LogIn, Eye, EyeOff } from "lucide-react"
+import { Eye, EyeOff, Anchor } from "lucide-react"
 
 export default function LoginPage() {
   const [email, setEmail] = useState("")
@@ -13,6 +14,8 @@ export default function LoginPage() {
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
   const { login } = useAuth()
+  const { companyName = "SEATECH", logoUrl = null } = useBranding()
+  const isSeatech = String(companyName || "SEATECH").trim().toUpperCase() === "SEATECH"
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -34,13 +37,30 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-muted/50 px-4">
-      <Card className="w-full max-w-md">
+    <div className="seatech-hero-bg flex min-h-screen items-center justify-center px-4 py-10">
+      <Card className="seatech-card-glow w-full max-w-md overflow-hidden">
+        <div className="h-1.5 w-full bg-gradient-to-r from-[#130a5c] via-[#ffcc0a] to-[#130a5c]" />
         <CardHeader className="space-y-1 text-center">
-          <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-            <LogIn className="h-6 w-6 text-primary" />
-          </div>
-          <CardTitle className="text-2xl font-bold">Welcome back</CardTitle>
+          {logoUrl ? (
+            <img
+              src={logoUrl}
+              alt={`${companyName} logo`}
+              className="mx-auto mb-2 h-24 w-auto max-w-[260px] rounded-xl bg-white object-contain p-2 shadow-lg ring-2 ring-[#ffcc0a]/70"
+            />
+          ) : (
+            <div className="mx-auto mb-2 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#130a5c] shadow-lg ring-2 ring-[#ffcc0a]/70">
+              <Anchor className="h-7 w-7 text-[#ffcc0a]" />
+            </div>
+          )}
+          {(!logoUrl || !isSeatech) && (
+            <div className="break-words text-xl font-black tracking-wide text-[#130a5c] dark:text-[#ffcc0a]">
+              {isSeatech ? (<>SEA<span className="text-[#cda200] dark:text-white">TECH</span></>) : companyName}
+            </div>
+          )}
+          <p className="text-[11px] font-medium tracking-wider text-muted-foreground">
+            Maritime Training & Assessment Center, Inc.
+          </p>
+          <CardTitle className="pt-2 text-2xl font-bold">Welcome back</CardTitle>
           <CardDescription>Enter your credentials to access the system</CardDescription>
         </CardHeader>
         <CardContent>

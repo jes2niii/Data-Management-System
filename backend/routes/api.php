@@ -35,6 +35,8 @@ use Illuminate\Support\Facades\Route;
 
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth:sanctum');
+// Public branding (company name + logo) for the login page / favicon.
+Route::get('/branding', [SettingsController::class, 'branding']);
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/me', [AuthController::class, 'me']);
@@ -250,6 +252,14 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/supply-inventories-stats', [\App\Http\Controllers\Api\SupplyInventoryController::class, 'stats']);
     Route::get('/uniform-inventories-stats', [\App\Http\Controllers\Api\UniformInventoryController::class, 'stats']);
     Route::get('/certificate-inventories-stats', [\App\Http\Controllers\Api\CertificateInventoryController::class, 'stats']);
+
+    // Book Inventory (Records Department)
+    Route::get('/book-inventories/stats', [\App\Http\Controllers\Api\BookInventoryController::class, 'stats']);
+    Route::get('/book-inventories/{id}/download', [\App\Http\Controllers\Api\BookInventoryController::class, 'download']);
+    Route::get('/book-inventories/{id}/preview', [\App\Http\Controllers\Api\BookInventoryController::class, 'preview']);
+    Route::get('/book-inventories/{id}/view', [\App\Http\Controllers\Api\BookInventoryController::class, 'view']);
+    Route::apiResource('book-inventories', \App\Http\Controllers\Api\BookInventoryController::class);
+    Route::apiResource('book-categories', \App\Http\Controllers\Api\BookCategoryController::class);
 
     // Search
     Route::get('/search', [SearchController::class, 'search']);

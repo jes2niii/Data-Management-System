@@ -13,9 +13,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Input } from "@/components/ui/input"
+import GlobalSearch from "./GlobalSearch"
 import {
-  Search,
   Bell,
   Sun,
   Moon,
@@ -23,6 +22,7 @@ import {
   LogOut,
   User,
   Settings,
+  ChevronDown,
 } from "lucide-react"
 
 export default function Header({ toggleSidebar, darkMode, toggleDarkMode }) {
@@ -50,33 +50,35 @@ export default function Header({ toggleSidebar, darkMode, toggleDarkMode }) {
   const notifications = notifData?.data?.data || []
   const unreadCount = notifications.filter(n => !n.read_at).length
 
+  const displayRole = user?.role?.name || "User"
+
   return (
-    <header className="flex h-14 items-center gap-4 border-b bg-background px-4">
-      <Button variant="ghost" size="icon" onClick={toggleSidebar}>
+    <header className="relative flex h-14 shrink-0 items-center gap-1.5 border-b bg-background px-2 after:absolute after:inset-x-0 after:bottom-[-1px] after:h-[2px] after:bg-gradient-to-r after:from-[#130a5c] after:via-[#ffcc0a] after:to-[#130a5c] after:opacity-70 sm:gap-2 sm:px-4">
+      <Button variant="ghost" size="icon" className="h-10 w-10 shrink-0" onClick={toggleSidebar} aria-label="Toggle sidebar">
         <Menu className="h-5 w-5" />
       </Button>
 
-      <div className="relative flex-1 max-w-md">
-        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-        <Input placeholder="Search..." className="pl-9 h-9" />
+      <div className="flex min-w-0 flex-1 items-center sm:justify-center sm:px-2">
+        <GlobalSearch />
       </div>
 
-      <Button variant="ghost" size="icon" onClick={toggleDarkMode}>
-        {darkMode ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-      </Button>
+      <div className="ml-auto flex shrink-0 items-center gap-0.5 sm:gap-1">
+        <Button variant="ghost" size="icon" onClick={toggleDarkMode} aria-label="Toggle theme">
+          {darkMode ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+        </Button>
 
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon" className="relative">
-            <Bell className="h-5 w-5" />
-            {unreadCount > 0 && (
-              <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] text-destructive-foreground">
-                {unreadCount}
-              </span>
-            )}
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent className="w-80" align="end">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="relative" aria-label="Notifications">
+              <Bell className="h-5 w-5" />
+              {unreadCount > 0 && (
+                <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold text-destructive-foreground">
+                  {unreadCount > 9 ? "9+" : unreadCount}
+                </span>
+              )}
+            </Button>
+          </DropdownMenuTrigger>
+        <DropdownMenuContent className="w-[calc(100vw-2rem)] max-w-80" align="end">
           <DropdownMenuLabel className="flex items-center justify-between">
             <span>Notifications</span>
             <Link to="/notifications" className="text-xs text-primary hover:underline">View all</Link>
@@ -100,7 +102,7 @@ export default function Header({ toggleSidebar, darkMode, toggleDarkMode }) {
                   </span>
                   {!n.read_at && <span className="h-2 w-2 rounded-full bg-primary shrink-0" />}
                 </div>
-                <span className="text-xs text-muted-foreground line-clamp-1">{n.message}</span>
+                <span className="text-xs text-muted-foreground whitespace-normal break-words">{n.message}</span>
                 <span className="text-xs text-muted-foreground">{n.created_at ? format(new Date(n.created_at), "MMM dd, h:mm a") : ""}</span>
               </DropdownMenuItem>
             ))
@@ -108,14 +110,21 @@ export default function Header({ toggleSidebar, darkMode, toggleDarkMode }) {
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="ghost" className="relative h-8 w-8 rounded-full">
-            <Avatar className="h-8 w-8">
-              <AvatarFallback className="text-xs">{initials}</AvatarFallback>
-            </Avatar>
-          </Button>
-        </DropdownMenuTrigger>
+        <div className="mx-1 hidden h-6 w-px shrink-0 bg-border sm:block" />
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" className="flex h-10 items-center gap-2 rounded-full px-1 sm:px-2">
+              <Avatar className="h-8 w-8 shrink-0 ring-2 ring-[#ffcc0a]/50">
+                <AvatarFallback className="bg-primary text-xs font-bold text-primary-foreground">{initials}</AvatarFallback>
+              </Avatar>
+              <span className="hidden min-w-0 text-left lg:block">
+                <span className="block max-w-[140px] truncate text-sm font-medium leading-tight">{user?.name || "User"}</span>
+                <span className="block max-w-[140px] truncate text-xs leading-tight text-muted-foreground">{displayRole}</span>
+              </span>
+              <ChevronDown className="hidden h-4 w-4 shrink-0 text-muted-foreground lg:block" />
+            </Button>
+          </DropdownMenuTrigger>
         <DropdownMenuContent className="w-56" align="end">
           <DropdownMenuLabel>
             <div className="flex flex-col space-y-1">
@@ -144,7 +153,8 @@ export default function Header({ toggleSidebar, darkMode, toggleDarkMode }) {
             Logout
           </DropdownMenuItem>
         </DropdownMenuContent>
-      </DropdownMenu>
+        </DropdownMenu>
+      </div>
     </header>
   )
 }

@@ -272,7 +272,7 @@ export default function SubscriptionsPage() {
                           <TableCell className="text-right">
                             <div className="font-mono font-semibold">{formatCurrency(s.amount)}</div>
                             {s.is_variable_amount && <div className="text-xs flex items-center justify-end gap-1"><Badge variant="warning" className="text-[10px] px-1 py-0">Variable</Badge><span className="text-muted-foreground">est. {formatCurrency(s.estimated_amount || s.amount)}</span></div>}
-                            {s.is_variable_amount && s.variable_notes && <div className="text-xs text-muted-foreground truncate max-w-[140px]" title={s.variable_notes}>{s.variable_notes}</div>}
+                            {s.is_variable_amount && s.variable_notes && <div className="text-xs text-muted-foreground whitespace-normal break-words max-w-[220px] text-right" title={s.variable_notes}>{s.variable_notes}</div>}
                           </TableCell>
                           <TableCell><Badge variant="secondary" className="capitalize">{cycleLabel[s.billing_cycle] || s.billing_cycle}{s.billing_frequency >1 ? ` ×${s.billing_frequency}`:""}</Badge></TableCell>
                           <TableCell>

@@ -14,8 +14,9 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts"
 import { ArrowLeft, DollarSign, TrendingUp, AlertCircle, Calendar } from "lucide-react"
+import { chartTooltipContentStyle, chartTooltipLabelStyle, chartTooltipItemStyle, chartBarCursor, chartLineCursor } from "@/lib/chart-theme"
 
-const COLORS = ["#3b82f6", "#22c55e", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4", "#f97316"]
+const COLORS = ["#130a5c", "#eab308", "#0e9f8a", "#3b82f6", "#f97316", "#8b5cf6", "#ec4899", "#06b6d4"]
 
 export default function BillingAnalytics() {
   const [year, setYear] = useState(new Date().getFullYear().toString())
@@ -181,20 +182,19 @@ export default function BillingAnalytics() {
                     <XAxis dataKey="month" className="text-xs" />
                     <YAxis className="text-xs" tickFormatter={(v) => `${symbol}${(v / 1000).toFixed(0)}K`} />
                     <Tooltip
-                      contentStyle={{
-                        backgroundColor: "hsl(var(--popover))",
-                        border: "1px solid hsl(var(--border))",
-                        borderRadius: "8px",
-                      }}
+                      contentStyle={chartTooltipContentStyle}
+                      labelStyle={chartTooltipLabelStyle}
+                      itemStyle={chartTooltipItemStyle}
+                      cursor={chartLineCursor}
                       formatter={(value) => [`${symbol}${Number(value).toLocaleString()}`, "Amount"]}
                     />
                     <Line
                       type="monotone"
                       dataKey="amount"
-                      stroke="hsl(var(--primary))"
+                      stroke="var(--primary)"
                       strokeWidth={2}
-                      dot={{ r: 4 }}
-                      activeDot={{ r: 6 }}
+                      dot={{ r: 4, fill: "var(--primary)" }}
+                      activeDot={{ r: 6, fill: "var(--chart-2)", stroke: "var(--primary)" }}
                     />
                   </LineChart>
                 </ResponsiveContainer>
@@ -218,11 +218,14 @@ export default function BillingAnalytics() {
                       label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                     >
                       {categoryData.map((_, idx) => (
-                        <Cell key={idx} fill={COLORS[idx % COLORS.length]} />
+                        <Cell key={idx} fill={COLORS[idx % COLORS.length]} stroke="var(--background)" strokeWidth={2} />
                       ))}
                     </Pie>
                     <Tooltip
-                      formatter={(value) => [`${symbol}${Number(value).toLocaleString()}`, "Amount"]}
+                      contentStyle={{ ...chartTooltipContentStyle, maxWidth: 320, whiteSpace: "normal", wordBreak: "break-word" }}
+                      labelStyle={chartTooltipLabelStyle}
+                      itemStyle={chartTooltipItemStyle}
+                      formatter={(value, name, props) => [`${symbol}${Number(value).toLocaleString()}`, props?.payload?.name || "Amount"]}
                     />
                   </PieChart>
                 </ResponsiveContainer>
@@ -241,14 +244,13 @@ export default function BillingAnalytics() {
                   <XAxis dataKey="name" className="text-xs" />
                   <YAxis className="text-xs" tickFormatter={(v) => `${symbol}${(v / 1000).toFixed(0)}K`} />
                   <Tooltip
-                    contentStyle={{
-                      backgroundColor: "hsl(var(--popover))",
-                      border: "1px solid hsl(var(--border))",
-                      borderRadius: "8px",
-                    }}
+                    contentStyle={{ ...chartTooltipContentStyle, maxWidth: 320, whiteSpace: "normal", wordBreak: "break-word" }}
+                    labelStyle={chartTooltipLabelStyle}
+                    itemStyle={chartTooltipItemStyle}
+                    cursor={chartBarCursor}
                     formatter={(value) => [`${symbol}${Number(value).toLocaleString()}`, "Amount"]}
                   />
-                  <Bar dataKey="amount" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="amount" fill="var(--primary)" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </CardContent>
