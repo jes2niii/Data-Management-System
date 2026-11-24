@@ -4,14 +4,25 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
+use App\Services\CsvReport;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Response;
 
 class ActivityLogController extends Controller
 {
     public function index(Request $request)
     {
-        $query = ActivityLog::with('user');
+        $logs = $this->filteredQuery($request)->with('user')
+            ->orderBy('created_at', 'desc')
+            ->paginate($request->get('per_page', 15));
+
+        return $this->success($logs);
+    }
+
+    private function filteredQuery(Request $request): \Illuminate\Database\Eloquent\Builder
+    {
+        $query = ActivityLog::query();
 
         if ($request->filled('user_id')) {
             $query->where('user_id', $request->user_id);
@@ -29,8 +40,11 @@ class ActivityLogController extends Controller
             $query->where('status', $request->status);
         }
 
-        if ($request->filled('date_from') && $request->filled('date_to')) {
-            $query->whereBetween('created_at', [$request->date_from, $request->date_to]);
+        if ($request->filled('date_from')) {
+            $query->where('created_at', '>=', Carbon::parse($request->date_from)->startOfDay());
+        }
+        if ($request->filled('date_to')) {
+            $query->where('created_at', '<=', Carbon::parse($request->date_to)->endOfDay());
         }
 
         if ($request->filled('search')) {
@@ -47,10 +61,7 @@ class ActivityLogController extends Controller
                 ->where('affected_record_id', $request->affected_record_id);
         }
 
-        $logs = $query->orderBy('created_at', 'desc')
-            ->paginate($request->get('per_page', 15));
-
-        return $this->success($logs);
+        return $query;
     }
 
     public function show($id)
@@ -60,31 +71,10 @@ class ActivityLogController extends Controller
         return $this->success($log);
     }
 
-    public function export(Request $request, $format)
+    public function export(Request $request, CsvReport $csv, $format)
     {
-        $query = ActivityLog::with('user');
-
-        if ($request->filled('user_id')) {
-            $query->where('user_id', $request->user_id);
-        }
-
-        if ($request->filled('module')) {
-            $query->where('module', $request->module);
-        }
-
-        if ($request->filled('action')) {
-            $query->where('action', $request->action);
-        }
-
-        if ($request->filled('status')) {
-            $query->where('status', $request->status);
-        }
-
-        if ($request->filled('date_from') && $request->filled('date_to')) {
-            $query->whereBetween('created_at', [$request->date_from, $request->date_to]);
-        }
-
-        $logs = $query->limit(10000)->get();
+        $logs = $this->filteredQuery($request)->with('user')
+            ->orderBy('created_at', 'desc')->limit(10000)->get();
 
         $exportData = $logs->map(function ($log) {
             return [
@@ -102,39 +92,19 @@ class ActivityLogController extends Controller
         })->toArray();
 
         if ($format === 'csv') {
-            $csv = $this->arrayToCsv($exportData);
-            return Response::make($csv, 200, [
-                'Content-Type' => 'text/csv',
-                'Content-Disposition' => 'attachment; filename="activity-logs-export.csv"',
-            ]);
+            return $csv->download('activity-logs-export.csv', [
+                'ID', 'User', 'Module', 'Action', 'Description',
+                'IP Address', 'Device', 'Browser', 'Status', 'Date',
+            ], $exportData);
         }
 
         if ($format === 'json') {
             return Response::json($exportData, 200, [
                 'Content-Disposition' => 'attachment; filename="activity-logs-export.json"',
+                'Cache-Control' => 'private, no-store',
             ]);
         }
 
         return $this->error('Unsupported export format', 400);
-    }
-
-    private function arrayToCsv(array $data): string
-    {
-        if (empty($data)) {
-            return '';
-        }
-
-        $output = fopen('php://temp', 'r+');
-        fputcsv($output, array_keys($data[0]));
-
-        foreach ($data as $row) {
-            fputcsv($output, $row);
-        }
-
-        rewind($output);
-        $csv = stream_get_contents($output);
-        fclose($output);
-
-        return $csv;
     }
 }

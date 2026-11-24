@@ -528,6 +528,24 @@ class ContainmentTest extends TestCase
         $this->assertStringContainsString('"\' =example, ""review"""', $activity);
     }
 
+    public function test_activity_log_export_matches_the_list_filters_and_neutralizes_formulas(): void
+    {
+        $user = $this->account(['activity_logs.read', 'activity_logs.export']);
+        ActivityLog::create(['user_id' => $user->id, 'module' => 'billing', 'action' => 'review',
+            'description' => '=1+1', 'created_at' => '2026-08-01 23:30:00']);
+        ActivityLog::create(['user_id' => $user->id, 'module' => 'billing', 'action' => 'review',
+            'description' => 'Next day', 'created_at' => '2026-08-02 00:30:00']);
+        ActivityLog::create(['user_id' => $user->id, 'module' => 'other', 'action' => 'review',
+            'description' => 'Wrong module', 'created_at' => '2026-08-01 12:00:00']);
+        Sanctum::actingAs($user);
+
+        $csv = $this->get('/api/activity-logs/export/csv?module=billing&date_to=2026-08-01')
+            ->assertOk()->assertDownload('activity-logs-export.csv')->streamedContent();
+        $this->assertStringContainsString("'=1+1", $csv);
+        $this->assertStringNotContainsString('Next day', $csv);
+        $this->assertStringNotContainsString('Wrong module', $csv);
+    }
+
     public function test_login_is_throttled_and_successful_login_issues_expiring_credentials(): void
     {
         $user = $this->account();
