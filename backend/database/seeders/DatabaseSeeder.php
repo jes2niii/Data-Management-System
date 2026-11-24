@@ -177,7 +177,7 @@ class DatabaseSeeder extends Seeder
 
     private function createAdmin(array $roles, string $email, string $password): void
     {
-        $itDept = Department::where('name', 'IT')->first();
+        $itDept = Department::where('name', 'Information Technology Department')->firstOrFail();
 
         User::create([
             'name' => 'Super Admin',
@@ -194,12 +194,29 @@ class DatabaseSeeder extends Seeder
 
     private function createDefaultDepartments(): void
     {
-        $departments = ['HR', 'Finance', 'IT', 'Operations', 'Engineering', 'Administration', 'Legal', 'Marketing', 'Sales'];
+        $departments = [
+            'President',
+            'General Manager',
+            'Training & Assessment Department',
+            'Research and Development Department',
+            'Information Technology Department',
+            'Operation Department',
+            'Finance Department',
+            'Human Resource Department',
+            'Marketing Department',
+            'Quality Assurance and Management Department',
+            'Supply Chain Management Department',
+        ];
 
         foreach ($departments as $name) {
+            $code = collect(preg_split('/\s+/', $name))
+                ->filter(fn ($word) => preg_match('/^[A-Za-z]/', $word) && strtolower($word) !== 'and')
+                ->map(fn ($word) => strtoupper($word[0]))
+                ->implode('');
+
             Department::create([
                 'name' => $name,
-                'code' => strtoupper(substr($name, 0, 4)),
+                'code' => $code,
                 'is_active' => true,
             ]);
         }

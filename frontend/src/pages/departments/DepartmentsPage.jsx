@@ -261,7 +261,7 @@ export default function DepartmentsPage() {
           <DialogHeader>
             <DialogTitle>Delete department?</DialogTitle>
             <DialogDescription>
-              {deleteTarget?.name} will be removed. Users and employees must be reassigned first.
+              {deleteTarget?.name} will be removed. Reassign users and employees first — soft-deleted records also count, because deleting a department permanently removes its members.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

@@ -73,11 +73,22 @@ class DepartmentController extends Controller
     {
         \Illuminate\Support\Facades\DB::transaction(function () use ($id) {
             $department = Department::lockForUpdate()->findOrFail($id);
-            abort_if(
-                $department->users()->withTrashed()->exists() || $department->employees()->withTrashed()->exists(),
-                409,
-                'Reassign users and employees before deleting this department.'
-            );
+
+            $users = $department->users()->withTrashed()->get(['id', 'deleted_at']);
+            $employees = $department->employees()->withTrashed()->get(['id', 'deleted_at']);
+            $blockers = [
+                'active users' => $users->whereNull('deleted_at')->count(),
+                'deleted users' => $users->whereNotNull('deleted_at')->count(),
+                'active employees' => $employees->whereNull('deleted_at')->count(),
+                'deleted employees' => $employees->whereNotNull('deleted_at')->count(),
+            ];
+            $blockers = array_filter($blockers);
+
+            if ($blockers !== []) {
+                $details = collect($blockers)->map(fn ($count, $label) => "{$count} {$label}")->implode(', ');
+                abort(409, 'This department still has '.$details.' assigned. Reassign or remove those records before deleting; deletion permanently removes its members.');
+            }
+
             $department->delete();
         });
 

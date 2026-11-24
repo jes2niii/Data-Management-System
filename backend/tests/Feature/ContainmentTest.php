@@ -392,6 +392,25 @@ class ContainmentTest extends TestCase
         }
     }
 
+    public function test_empty_department_can_be_deleted_but_hidden_members_still_block_it(): void
+    {
+        $admin = $this->account(['departments.read', 'departments.delete']);
+        $empty = Department::create(['name' => 'Empty Unit', 'code' => 'EMPTY-'.Str::random(4)]);
+        Sanctum::actingAs($admin);
+
+        $this->deleteJson("/api/departments/{$empty->id}")->assertOk();
+        $this->assertDatabaseMissing('departments', ['id' => $empty->id]);
+
+        $used = Department::create(['name' => 'Archived Unit', 'code' => 'ARCH-'.Str::random(4)]);
+        $member = $this->account();
+        $member->update(['department_id' => $used->id]);
+        $member->delete();
+
+        $this->deleteJson("/api/departments/{$used->id}")->assertStatus(409);
+        $this->assertStringContainsString('1 deleted user', $this->deleteJson("/api/departments/{$used->id}")->json('message'));
+        $this->assertDatabaseHas('departments', ['id' => $used->id]);
+    }
+
     public function test_password_change_requires_current_password_and_revokes_tokens(): void
     {
         $user = $this->account();
