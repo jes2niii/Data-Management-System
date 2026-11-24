@@ -10,6 +10,8 @@ test("limited accounts receive only allowed module navigation", () => {
   const user = account(["forms.read"])
   assert.equal(canOpenPage(user, "forms"), true)
   assert.equal(canOpenPage(user, "users"), false)
+  assert.equal(canOpenPage(user, "departments"), false)
+  assert.equal(canOpenPage(account(["departments.read"]), "departments"), true)
   assert.equal(canOpenPage(user, "dashboard"), true)
   assert.equal(canOpenPage(null, "dashboard"), false)
 })

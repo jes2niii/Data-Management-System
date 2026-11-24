@@ -14,6 +14,7 @@ const LoginPage = lazy(() => import("@/pages/auth/LoginPage"))
 const UsersPage = lazy(() => import("@/pages/users/UsersPage"))
 const EmployeesPage = lazy(() => import("@/pages/employees/EmployeesPage"))
 const EmployeeDetailPage = lazy(() => import("@/pages/employees/EmployeeDetailPage"))
+const DepartmentsPage = lazy(() => import("@/pages/departments/DepartmentsPage"))
 const FilesPage = lazy(() => import("@/pages/files/FilesPage"))
 const FormsPage = lazy(() => import("@/pages/forms/FormsPage"))
 const BillsPage = lazy(() => import("@/pages/billing/BillsPage"))
@@ -108,6 +109,7 @@ export const router = createBrowserRouter([
           { path: "users", element: <ModuleRoute page="users"><UsersPage /></ModuleRoute> },
           { path: "employees", element: <ModuleRoute page="employees"><EmployeesPage /></ModuleRoute> },
           { path: "employees/:id", element: <ModuleRoute page="employees"><EmployeeDetailPage /></ModuleRoute> },
+          { path: "departments", element: <ModuleRoute page="departments"><DepartmentsPage /></ModuleRoute> },
           { path: "files", element: <ModuleRoute page="files"><FilesPage /></ModuleRoute> },
           { path: "forms", element: <ModuleRoute page="forms"><FormsPage /></ModuleRoute> },
           { path: "billing", element: <ModuleRoute page="billing"><BillsPage /></ModuleRoute> },

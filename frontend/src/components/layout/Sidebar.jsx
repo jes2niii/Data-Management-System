@@ -36,6 +36,7 @@ const navItems = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/users", label: "Users", icon: Users },
   { to: "/employees", label: "Employees", icon: UserCircle },
+  { to: "/departments", label: "Departments", icon: Building2 },
   { to: "/files", label: "Files", icon: FileText },
   { to: "/forms", label: "Forms", icon: FileSpreadsheet },
   { to: "/billing", label: "Billing", icon: DollarSign },

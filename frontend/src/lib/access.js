@@ -9,6 +9,7 @@ export const pagePermissions = {
   dashboard: null,
   users: "users.read",
   employees: "employees.read",
+  departments: "departments.read",
   files: "documents.read",
   forms: "forms.read",
   billing: "bills.read",

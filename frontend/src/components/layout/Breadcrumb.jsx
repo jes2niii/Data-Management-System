@@ -12,6 +12,7 @@ const routeLabels = {
   dashboard: "Dashboard",
   users: "Users",
   employees: "Employees",
+  departments: "Departments",
   files: "Files",
   forms: "Forms",
   billing: "Billing",
