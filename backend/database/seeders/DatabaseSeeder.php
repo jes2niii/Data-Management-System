@@ -53,6 +53,13 @@ class DatabaseSeeder extends Seeder
             'HR' => 'Human resources management access',
             'Finance' => 'Financial management access',
             'Employee' => 'Basic employee access with limited permissions',
+            'RDD' => 'RDD management access',
+            'QAMD' => 'QAMD management access',
+            'RMD' => 'Records Dartment management access',
+            'SCMD' => 'Supply Chain Department management access',
+            'ITD' => 'IT Department management access',
+            'MD' => 'Marketing Department management access',
+            'TAD' => 'Training and Assessment Department management access',
             'Viewer' => 'Read-only access to selected modules',
         ];
 
