@@ -445,6 +445,40 @@ class ContainmentTest extends TestCase
         $this->assertDatabaseHas('departments', ['id' => $used->id]);
     }
 
+    public function test_quick_item_analysis_uses_the_same_scoring_rules(): void
+    {
+        Sanctum::actingAs($this->account(['items.update']));
+
+        $payload = [
+            'student_count' => 4,
+            'item_count' => 2,
+            'results' => [[true, true], [true, false], [false, true], [false, false]],
+        ];
+        $response = $this->postJson('/api/item-analysis/quick', $payload)->assertOk();
+        $students = collect($response->json('data.students'))->keyBy('student_number');
+        $this->assertSame(2, $students[1]['total_score']);
+        $this->assertSame(1, $students[2]['items_incorrect']);
+        $this->assertSame('UA', $students[1]['group']);
+        $this->assertSame('UA', $students[2]['group']);
+        $this->assertSame('LA', $students[3]['group']);
+        $this->assertSame('LA', $students[4]['group']);
+
+        $items = $response->json('data.items');
+        $this->assertSame(2, $items[0]['ua_correct']);
+        $this->assertSame(0, $items[0]['la_correct']);
+        $this->assertSame(0.5, $items[0]['difficulty_index']);
+        $this->assertEquals(1.0, $items[0]['discrimination_index']);
+        $this->assertSame('Moderately Difficult', $items[0]['difficulty_level']);
+        $this->assertSame('Very Discriminating', $items[0]['discrimination_level']);
+        $this->assertSame('Retain', $items[0]['action']);
+        $this->assertEquals(0.0, $items[1]['discrimination_index']);
+        $this->assertSame('Moderately Discriminating', $items[1]['discrimination_level']);
+
+        $this->postJson('/api/item-analysis/quick', [
+            'student_count' => 3, 'item_count' => 2, 'results' => [[true, true]],
+        ])->assertUnprocessable()->assertJsonValidationErrors('results');
+    }
+
     public function test_a_user_account_can_be_created_from_an_employee_record(): void
     {
         $admin = $this->account([], Role::SUPER_ADMIN);

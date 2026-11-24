@@ -21,6 +21,7 @@ use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\AttendanceController;
 use App\Http\Controllers\Api\SurveyController;
 use App\Http\Controllers\Api\TestAnalysisController;
+use App\Http\Controllers\Api\QuickAnalysisController;
 use App\Http\Controllers\Api\InventoryCategoryController;
 use App\Http\Controllers\Api\InventoryItemController;
 use App\Http\Controllers\Api\InventorySupplierController;
@@ -220,6 +221,7 @@ Route::middleware(['auth:sanctum', 'account.enabled'])->group(function () use ($
     Route::post('/test-exams/{id}/students', [TestAnalysisController::class, 'addStudents'])->middleware('permission:items.update');
     Route::post('/test-exams/{id}/analyze', [TestAnalysisController::class, 'runAnalysis'])->middleware('permission:items.update');
     Route::get('/test-exams/{id}/analysis', [TestAnalysisController::class, 'getAnalysis'])->middleware('permission:items.read');
+    Route::post('/item-analysis/quick', [QuickAnalysisController::class, 'analyze'])->middleware('permission:items.update');
 
     // Training Monitoring
     Route::get('/training-monitorings/stats', [TrainingMonitoringController::class, 'stats'])->middleware('permission:training_monitorings.read');

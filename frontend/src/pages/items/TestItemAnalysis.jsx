@@ -14,6 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
 import { Plus, Trash2, Search, TrendingUp, Play, Users, Pencil } from "lucide-react"
 import { chartTooltipContentStyle, chartTooltipLabelStyle, chartTooltipItemStyle, chartBarCursor } from "@/lib/chart-theme"
+import QuickItemAnalysis from "./QuickItemAnalysis"
 
 const actionColors = { Retain: "success", Revise: "warning", Reject: "destructive" }
 const dfColors = {
@@ -38,6 +39,7 @@ export default function TestItemAnalysis() {
   const [selectedExam, setSelectedExam] = useState(null)
   const [editingExamId, setEditingExamId] = useState(null)
   const [examForm, setExamForm] = useState({ title: "", description: "", subject: "", items: [{ item_number: 1, question: "", correct_answer: "", item_type: "multiple_choice", options: null }] })
+  const [itemsLocked, setItemsLocked] = useState(false)
   const [studentForm, setStudentForm] = useState([{ name: "", answers: [] }])
 
   const { data, isLoading } = useQuery({
@@ -77,7 +79,10 @@ export default function TestItemAnalysis() {
   const students = analysisData?.data?.students || []
   const examItems = selectedExam?.items || []
 
-  const resetExamForm = () => setExamForm({ title: "", description: "", subject: "", items: [{ item_number: 1, question: "", correct_answer: "", item_type: "multiple_choice", options: null }] })
+  const resetExamForm = () => {
+    setItemsLocked(false)
+    setExamForm({ title: "", description: "", subject: "", items: [{ item_number: 1, question: "", correct_answer: "", item_type: "multiple_choice", options: null }] })
+  }
   const addItem = () => setExamForm({ ...examForm, items: [...examForm.items, { item_number: examForm.items.length + 1, question: "", correct_answer: "", item_type: "multiple_choice", options: null }] })
 
   const openStudentForm = async (exam) => {
@@ -94,9 +99,10 @@ export default function TestItemAnalysis() {
       const { data: { data: current } } = await api.get(`/test-exams/${exam.id}`)
       const locked = (current.students?.length || 0) > 0 || current.has_analysis
       setEditingExamId(current.id)
+      setItemsLocked(locked)
       setExamForm({
         title: current.title, description: current.description || "", subject: current.subject || "",
-        items: locked ? null : (current.items || []).map((item) => ({
+        items: (current.items || []).map((item) => ({
           id: item.id, item_number: item.item_number, question: item.question || "",
           correct_answer: item.correct_answer || "", item_type: item.item_type || "multiple_choice", options: item.options || null,
         })),
@@ -206,7 +212,7 @@ export default function TestItemAnalysis() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold">Test Exams</h2>
-        <Button onClick={() => { resetExamForm(); setExamDialogOpen(true) }}>
+        <Button onClick={() => { setEditingExamId(null); resetExamForm(); setExamDialogOpen(true) }}>
           <Plus className="mr-2 h-4 w-4" /> Create Exam
         </Button>
       </div>
@@ -216,6 +222,8 @@ export default function TestItemAnalysis() {
           <Input placeholder="Search exams..." className="pl-9" value={search} onChange={e => setSearch(e.target.value)} />
         </div>
       </div>
+
+      <QuickItemAnalysis />
 
       <Card>
         <CardContent className="pt-6">
@@ -265,11 +273,11 @@ export default function TestItemAnalysis() {
             <Input placeholder="Subject" value={examForm.subject} onChange={e => setExamForm({ ...examForm, subject: e.target.value })} />
             <Input placeholder="Description" value={examForm.description} onChange={e => setExamForm({ ...examForm, description: e.target.value })} />
             <div className="flex justify-between items-center"><Label className="font-semibold">Items</Label><Button size="sm" variant="outline" onClick={addItem}><Plus className="mr-1 h-3 w-3" /> Add Item</Button></div>
-            {examForm.items.map((it, i) => (
+            {(examForm.items || []).map((it, i) => (
               <div key={i} className="flex gap-2 items-center border rounded p-2 flex-wrap">
                 <span className="text-xs text-muted-foreground w-12">{i + 1}.</span>
-                <Input className="flex-1 min-w-[150px]" value={it.question} placeholder="Question" onChange={e => { const its = [...examForm.items]; its[i].question = e.target.value; its[i].item_number = i + 1; setExamForm({ ...examForm, items: its }) }} />
-                <Select value={it.item_type || "multiple_choice"} onValueChange={v => { const its = [...examForm.items]; its[i].item_type = v; setExamForm({ ...examForm, items: its }) }}>
+                <Input disabled={itemsLocked} className="flex-1 min-w-[150px]" value={it.question} placeholder="Question" onChange={e => { const its = [...examForm.items]; its[i].question = e.target.value; its[i].item_number = i + 1; setExamForm({ ...examForm, items: its }) }} />
+                <Select disabled={itemsLocked} value={it.item_type || "multiple_choice"} onValueChange={v => { const its = [...examForm.items]; its[i].item_type = v; setExamForm({ ...examForm, items: its }) }}>
                   <SelectTrigger className="w-[130px]"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="multiple_choice">Multiple Choice</SelectItem>
@@ -277,8 +285,8 @@ export default function TestItemAnalysis() {
                     <SelectItem value="identification">Fill in Blank</SelectItem>
                   </SelectContent>
                 </Select>
-                <Input className="w-24" value={it.correct_answer} placeholder="Key" onChange={e => { const its = [...examForm.items]; its[i].correct_answer = e.target.value; setExamForm({ ...examForm, items: its }) }} />
-                {examForm.items.length > 1 && <Button variant="ghost" size="icon" onClick={() => setExamForm({ ...examForm, items: examForm.items.filter((_, idx) => idx !== i) })}><Trash2 className="h-4 w-4 text-destructive" /></Button>}
+                <Input disabled={itemsLocked} className="w-24" value={it.correct_answer} placeholder="Key" onChange={e => { const its = [...examForm.items]; its[i].correct_answer = e.target.value; setExamForm({ ...examForm, items: its }) }} />
+                {!itemsLocked && examForm.items.length > 1 && <Button variant="ghost" size="icon" onClick={() => setExamForm({ ...examForm, items: examForm.items.filter((_, idx) => idx !== i) })}><Trash2 className="h-4 w-4 text-destructive" /></Button>}
               </div>
             ))}
           </div>
@@ -296,13 +304,16 @@ export default function TestItemAnalysis() {
             <Input placeholder="Title" value={examForm.title} onChange={e => setExamForm({ ...examForm, title: e.target.value })} />
             <Input placeholder="Subject" value={examForm.subject} onChange={e => setExamForm({ ...examForm, subject: e.target.value })} />
             <Input placeholder="Description" value={examForm.description} onChange={e => setExamForm({ ...examForm, description: e.target.value })} />
-             {examForm.items === null ? <p role="status" className="text-sm text-muted-foreground">Items are locked because scores or analysis have been recorded.</p> :
-               <div className="flex justify-between items-center"><Label className="font-semibold">Items</Label><Button size="sm" variant="outline" onClick={addItem}><Plus className="mr-1 h-3 w-3" /> Add</Button></div>}
-             {examForm.items?.map((it, i) => (
+             {itemsLocked && <p role="status" className="text-sm text-muted-foreground">Items are locked because scores or analysis have been recorded.</p>}
+             <div className="flex justify-between items-center">
+               <Label className="font-semibold">Items</Label>
+               {!itemsLocked && <Button size="sm" variant="outline" onClick={addItem}><Plus className="mr-1 h-3 w-3" /> Add</Button>}
+             </div>
+             {(examForm.items || []).map((it, i) => (
               <div key={i} className="flex gap-2 items-center border rounded p-2 flex-wrap">
                 <span className="text-xs text-muted-foreground w-12">{i + 1}.</span>
-                <Input className="flex-1 min-w-[150px]" value={it.question} placeholder="Question" onChange={e => { const its = [...examForm.items]; its[i].question = e.target.value; setExamForm({ ...examForm, items: its }) }} />
-                <Select value={it.item_type || "multiple_choice"} onValueChange={v => { const its = [...examForm.items]; its[i].item_type = v; setExamForm({ ...examForm, items: its }) }}>
+                <Input disabled={itemsLocked} className="flex-1 min-w-[150px]" value={it.question} placeholder="Question" onChange={e => { const its = [...examForm.items]; its[i].question = e.target.value; setExamForm({ ...examForm, items: its }) }} />
+                <Select disabled={itemsLocked} value={it.item_type || "multiple_choice"} onValueChange={v => { const its = [...examForm.items]; its[i].item_type = v; setExamForm({ ...examForm, items: its }) }}>
                   <SelectTrigger className="w-[130px]"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="multiple_choice">Multiple Choice</SelectItem>
@@ -310,8 +321,8 @@ export default function TestItemAnalysis() {
                     <SelectItem value="identification">Fill in Blank</SelectItem>
                   </SelectContent>
                 </Select>
-                <Input className="w-24" value={it.correct_answer} placeholder="Key" onChange={e => { const its = [...examForm.items]; its[i].correct_answer = e.target.value; setExamForm({ ...examForm, items: its }) }} />
-                {examForm.items.length > 1 && <Button variant="ghost" size="icon" onClick={() => setExamForm({ ...examForm, items: examForm.items.filter((_, idx) => idx !== i) })}><Trash2 className="h-4 w-4 text-destructive" /></Button>}
+                <Input disabled={itemsLocked} className="w-24" value={it.correct_answer} placeholder="Key" onChange={e => { const its = [...examForm.items]; its[i].correct_answer = e.target.value; setExamForm({ ...examForm, items: its }) }} />
+                {!itemsLocked && examForm.items.length > 1 && <Button variant="ghost" size="icon" onClick={() => setExamForm({ ...examForm, items: examForm.items.filter((_, idx) => idx !== i) })}><Trash2 className="h-4 w-4 text-destructive" /></Button>}
               </div>
             ))}
           </div>
@@ -319,7 +330,7 @@ export default function TestItemAnalysis() {
             <Button variant="outline" onClick={() => setEditExamOpen(false)}>Cancel</Button>
              <Button disabled={!examForm.title || examMutation.isPending} onClick={() => {
                const { items, ...fields } = examForm
-               examMutation.mutate(items ? { ...fields, items } : fields)
+               examMutation.mutate(itemsLocked ? fields : { ...fields, items })
              }}>Update</Button>
           </DialogFooter>
         </DialogContent>

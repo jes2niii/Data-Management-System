@@ -8,6 +8,7 @@ use App\Models\TestExam;
 use App\Models\TestItem;
 use App\Models\TestItemAnalysis;
 use App\Models\TestStudent;
+use App\Services\ItemAnalysisCalculator;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -190,7 +191,7 @@ class TestAnalysisController extends Controller
         return $this->success($exam->load('students'), 'Students added', 201);
     }
 
-    public function runAnalysis($id)
+    public function runAnalysis($id, ItemAnalysisCalculator $calculator)
     {
         $exam = TestExam::with(['items'])->findOrFail($id);
         $students = $exam->students()->with('answers')->orderBy('total_score', 'desc')->orderBy('id')->get();
@@ -200,14 +201,12 @@ class TestAnalysisController extends Controller
             return $this->error('Need at least 2 students for analysis', 400);
         }
 
-        $topCount = (int) ceil($totalStudents * 0.27);
-        $ua = $students->take($topCount);
-        $la = $students->reverse()->take($topCount);
+        [$ua, $la] = $calculator->splitGroups($students);
 
         $uaTotal = $ua->count();
         $laTotal = $la->count();
 
-        DB::transaction(function () use ($exam, $students, $ua, $la, $uaTotal, $laTotal) {
+        DB::transaction(function () use ($exam, $students, $ua, $la, $uaTotal, $laTotal, $calculator) {
             $exam->analysis()->delete();
 
             // Persist the group membership and rank so the analysis can be audited later.
@@ -228,22 +227,19 @@ class TestAnalysisController extends Controller
                 $uaCorrect = $this->countCorrect($item, $ua);
                 $laCorrect = $this->countCorrect($item, $la);
 
-                $uaProp = $uaTotal > 0 ? $uaCorrect / $uaTotal : 0;
-                $laProp = $laTotal > 0 ? $laCorrect / $laTotal : 0;
-                $df = ($uaProp + $laProp) / 2;
-                $ds = $uaProp - $laProp;
+                $metrics = $calculator->metrics($uaCorrect, $laCorrect, $uaTotal, $laTotal);
 
                 TestItemAnalysis::create([
                     'test_exam_id' => $exam->id,
                     'test_item_id' => $item->id,
                     'ua_correct' => $uaCorrect, 'la_correct' => $laCorrect,
                     'ua_total' => $uaTotal, 'la_total' => $laTotal,
-                    'ua_proportion' => $uaProp, 'la_proportion' => $laProp,
-                    'difficulty_index' => round($df, 4),
-                    'discrimination_index' => round($ds, 4),
-                    'difficulty_level' => $this->getDifficultyLevel($df),
-                    'discrimination_level' => $this->getDiscriminationLevel($ds),
-                    'action' => $this->getAction($df, $ds),
+                    'ua_proportion' => $metrics['ua_proportion'], 'la_proportion' => $metrics['la_proportion'],
+                    'difficulty_index' => $metrics['difficulty_index'],
+                    'discrimination_index' => $metrics['discrimination_index'],
+                    'difficulty_level' => $metrics['difficulty_level'],
+                    'discrimination_level' => $metrics['discrimination_level'],
+                    'action' => $metrics['action'],
                     'upper_choices' => $uaChoices,
                     'lower_choices' => $laChoices,
                 ]);
@@ -352,45 +348,5 @@ class TestAnalysisController extends Controller
             default:
                 return self::MC_OPTIONS;
         }
-    }
-
-    private function getDifficultyLevel($df)
-    {
-        if ($df <= 0.20) return 'Very Difficult';
-        if ($df <= 0.40) return 'Difficult';
-        if ($df <= 0.60) return 'Moderately Difficult';
-        if ($df <= 0.80) return 'Easy';
-        return 'Very Easy';
-    }
-
-    private function getDiscriminationLevel($ds)
-    {
-        if ($ds <= -0.60) return 'Questionable';
-        if ($ds <= -0.22) return 'Not Discriminating';
-        if ($ds <= 0.20) return 'Moderately Discriminating';
-        if ($ds <= 0.60) return 'Discriminating';
-        return 'Very Discriminating';
-    }
-
-    private function getAction($df, $ds)
-    {
-        $dsCat = $this->getDiscriminationCategory($ds);
-        if ($df <= 0.40) {
-            if ($dsCat === 'low') return 'Reject';
-            return 'Revise';
-        }
-        if ($df <= 0.60) {
-            if ($dsCat === 'low') return 'Revise';
-            return 'Retain';
-        }
-        if ($dsCat === 'low') return 'Reject';
-        return 'Revise';
-    }
-
-    private function getDiscriminationCategory($ds)
-    {
-        if ($ds <= -0.22) return 'low';
-        if ($ds <= 0.20) return 'mid';
-        return 'high';
     }
 }
