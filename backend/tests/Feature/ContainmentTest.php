@@ -63,7 +63,7 @@ class ContainmentTest extends TestCase
         $tables = [
             '073921', '080000', '080100', '080200', '080300', '080400', '080500',
             '080800', '080900', '081000', '081100', '081200', '081300', '081400', '081500', '081700',
-            '081900', '082300', '082400', '082500', '082600', '083100', '083200', '083400', '083500', '083600',
+            '081900', '082300', '082400', '082500', '082600', '083000', '083100', '083200', '083400', '083500', '083600',
             '084000', '085000', '085100', '085200', '085300', '085400', '085500', '085600', '085700',
             '085800', '085900', '086000', '086100', '086200',
         ];
@@ -443,6 +443,38 @@ class ContainmentTest extends TestCase
         $this->deleteJson("/api/departments/{$used->id}")->assertStatus(409);
         $this->assertStringContainsString('1 deleted user', $this->deleteJson("/api/departments/{$used->id}")->json('message'));
         $this->assertDatabaseHas('departments', ['id' => $used->id]);
+    }
+
+    public function test_a_user_account_can_be_created_from_an_employee_record(): void
+    {
+        $admin = $this->account([], Role::SUPER_ADMIN);
+        $role = Role::create(['name' => 'Staff '.Str::random(6)]);
+        $department = Department::create(['name' => 'Support', 'code' => 'SUP-'.Str::random(4)]);
+        $employee = Employee::create([
+            'employee_id' => 'EMP-101', 'employee_no' => 'EMP-101', 'full_name' => 'Jane Doe',
+            'email' => 'jane@example.test', 'department_id' => $department->id,
+            'position' => 'Analyst', 'phone' => '1234567', 'gender' => 'Female',
+        ]);
+        Sanctum::actingAs($admin);
+
+        $this->postJson("/api/employees/{$employee->id}/create-user", [
+            'role_id' => $role->id, 'password' => 'a-strong-password',
+        ])->assertCreated()->assertJsonPath('data.name', 'Jane Doe')
+            ->assertJsonMissingPath('data.password');
+
+        $user = User::where('email', 'jane@example.test')->sole();
+        $this->assertSame('EMP-101', $user->username);
+        $this->assertSame($department->id, $user->department_id);
+        $this->assertSame('Analyst', $user->position);
+        $this->assertSame('female', $user->gender);
+        $this->assertSame('active', $user->status);
+        $this->assertSame($user->id, $employee->fresh()->user_id);
+        $this->assertSame('success', ActivityLog::where('module', 'users')
+            ->where('description', 'like', 'Created user "Jane Doe"%')->sole()->status);
+
+        $this->postJson("/api/employees/{$employee->id}/create-user", [
+            'role_id' => $role->id, 'password' => 'a-strong-password',
+        ])->assertStatus(409);
     }
 
     public function test_toggle_status_uses_the_disable_and_enable_endpoints(): void

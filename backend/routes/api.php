@@ -70,6 +70,7 @@ Route::middleware(['auth:sanctum', 'account.enabled'])->group(function () use ($
     Route::put('/employees/{employee}', [EmployeeController::class, 'update'])->middleware('permission:employees.update');
     Route::delete('/employees/{employee}', [EmployeeController::class, 'destroy'])->middleware('permission:employees.delete');
     Route::post('/employees/{id}/attachments', [EmployeeController::class, 'uploadAttachment'])->middleware('permission:employees.update');
+    Route::post('/employees/{id}/create-user', [EmployeeController::class, 'createUser'])->middleware('permission:users.create');
     Route::delete('/employees/{employee}/attachments/{attachment}', [EmployeeController::class, 'deleteAttachment'])->middleware('permission:employees.update');
 
     // Departments

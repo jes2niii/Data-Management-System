@@ -3,10 +3,13 @@ import { Link } from "react-router-dom"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useDebounce } from "@/hooks/useDebounce"
 import { usePersonalization } from "@/hooks/usePersonalization"
+import { useAuth } from "@/contexts/AuthContext"
+import { hasPermission } from "@/lib/access"
 import { toast } from "sonner"
 import api from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
@@ -49,6 +52,15 @@ export default function EmployeesPage() {
   const [editingEmployee, setEditingEmployee] = useState(null)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [deletingEmployee, setDeletingEmployee] = useState(null)
+  const [userDialogOpen, setUserDialogOpen] = useState(false)
+  const [userEmployee, setUserEmployee] = useState(null)
+  const [userRoleId, setUserRoleId] = useState("")
+  const [userPassword, setUserPassword] = useState("")
+  const [userUsername, setUserUsername] = useState("")
+  const [userEmail, setUserEmail] = useState("")
+
+  const { user } = useAuth()
+  const canCreateUsers = hasPermission(user, "users.create")
 
   const { itemsPerPage } = usePersonalization()
   const perPage = itemsPerPage || 10
@@ -56,6 +68,12 @@ export default function EmployeesPage() {
   const { data: departmentsData } = useQuery({
     queryKey: ["departments"],
     queryFn: () => api.get("/departments").then((r) => r.data),
+  })
+
+  const { data: rolesData } = useQuery({
+    queryKey: ["roles"],
+    queryFn: () => api.get("/roles").then((r) => r.data),
+    enabled: canCreateUsers,
   })
 
   const { data, isLoading, isError } = useQuery({
@@ -72,6 +90,19 @@ export default function EmployeesPage() {
       }).then((r) => r.data),
   })
 
+  const createUserMutation = useMutation({
+    mutationFn: ({ id, ...payload }) => api.post(`/employees/${id}/create-user`, payload),
+    onSuccess: () => {
+      toast.success("User account created from employee")
+      queryClient.invalidateQueries({ queryKey: ["employees"] })
+      queryClient.invalidateQueries({ queryKey: ["users"] })
+      setUserDialogOpen(false)
+      setUserEmployee(null)
+      setUserPassword("")
+    },
+    onError: (err) => toast.error(err.response?.data?.message || "Failed to create user account"),
+  })
+
   const deleteMutation = useMutation({
     mutationFn: (id) => api.delete(`/employees/${id}`),
     onSuccess: () => {
@@ -86,6 +117,16 @@ export default function EmployeesPage() {
   const employees = data?.data?.data || []
   const totalPages = data?.data?.last_page || 1
   const departments = departmentsData?.data || []
+  const roles = rolesData?.data || []
+
+  const openUserDialog = (employee) => {
+    setUserEmployee(employee)
+    setUserRoleId("")
+    setUserPassword("")
+    setUserUsername(employee.employee_no || "")
+    setUserEmail(employee.email || "")
+    setUserDialogOpen(true)
+  }
 
   return (
     <div className="space-y-6">
@@ -203,6 +244,11 @@ export default function EmployeesPage() {
                               >
                                 <Pencil className="mr-2 h-4 w-4" /> Edit
                               </DropdownMenuItem>
+                              {canCreateUsers && !emp.user_id && (
+                                <DropdownMenuItem onClick={() => openUserDialog(emp)}>
+                                  <UserPlus className="mr-2 h-4 w-4" /> Create User Account
+                                </DropdownMenuItem>
+                              )}
                               <DropdownMenuSeparator />
                               <DropdownMenuItem
                                 className="text-destructive"
@@ -238,6 +284,77 @@ export default function EmployeesPage() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={userDialogOpen} onOpenChange={setUserDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create User Account</DialogTitle>
+            <DialogDescription>
+              The account will use {userEmployee?.full_name}&apos;s name, department ({userEmployee?.department?.name || "—"}),
+              position and contact details from the employee record. Choose a role and password below.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Role *</Label>
+              <Select value={userRoleId} onValueChange={setUserRoleId}>
+                <SelectTrigger><SelectValue placeholder="Select role" /></SelectTrigger>
+                <SelectContent>
+                  {roles.map((role) => (
+                    <SelectItem key={role.id} value={role.id.toString()}>{role.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="newUserPassword">Password *</Label>
+              <Input
+                id="newUserPassword"
+                type="password"
+                value={userPassword}
+                onChange={(e) => setUserPassword(e.target.value)}
+                autoComplete="new-password"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="newUserUsername">Username (optional)</Label>
+                <Input
+                  id="newUserUsername"
+                  value={userUsername}
+                  onChange={(e) => setUserUsername(e.target.value)}
+                  placeholder={userEmployee?.employee_no || "From employee number"}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="newUserEmail">Email (optional)</Label>
+                <Input
+                  id="newUserEmail"
+                  type="email"
+                  value={userEmail}
+                  onChange={(e) => setUserEmail(e.target.value)}
+                  placeholder={userEmployee?.email || "From employee record"}
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setUserDialogOpen(false)}>Cancel</Button>
+            <Button
+              disabled={!userRoleId || userPassword.length < 6 || createUserMutation.isPending}
+              onClick={() => createUserMutation.mutate({
+                id: userEmployee?.id,
+                role_id: Number(userRoleId),
+                password: userPassword,
+                username: userUsername || undefined,
+                email: userEmail || undefined,
+              })}
+            >
+              {createUserMutation.isPending ? "Creating..." : "Create User"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <EmployeeFormDialog
         key={editingEmployee?.id || "new"}

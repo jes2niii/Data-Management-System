@@ -5,9 +5,16 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\EmployeeStoreRequest;
 use App\Http\Requests\EmployeeUpdateRequest;
+use App\Http\Requests\CreateEmployeeUserRequest;
 use App\Models\Employee;
 use App\Models\EmployeeAttachment;
+use App\Models\Role;
+use App\Models\User;
+use App\Services\RoleAdministration;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\ValidationException;
 
 class EmployeeController extends Controller
 {
@@ -152,5 +159,65 @@ class EmployeeController extends Controller
         $attachment->delete();
 
         return $this->success(null, 'Attachment deleted');
+    }
+
+    /**
+     * Create a user account from an employee record and link the two records.
+     * Only the role and password come from the caller; identity fields are
+     * taken from the employee so they cannot be spoofed.
+     */
+    public function createUser(CreateEmployeeUserRequest $request, RoleAdministration $roles, $id)
+    {
+        $data = $request->validated();
+
+        $user = DB::transaction(function () use ($data, $request, $roles, $id) {
+            $employee = Employee::lockForUpdate()->findOrFail($id);
+            abort_if($employee->user_id !== null, 409, 'This employee already has a user account.');
+
+            $role = Role::findOrFail($data['role_id']);
+            $roles->change($request->user(), function (User $actor) use ($roles, $role) {
+                abort_unless($actor->hasPermission('users', 'create'), 403);
+                $roles->checkRole($actor, $role);
+            });
+
+            $email = $data['email'] ?? $employee->email;
+            $username = $data['username'] ?? $employee->employee_no;
+            if (!$email) {
+                throw ValidationException::withMessages(['email' => 'The employee has no email address. Provide one.']);
+            }
+            if (!$username) {
+                throw ValidationException::withMessages(['username' => 'The employee has no employee number. Provide a username.']);
+            }
+            if (!$employee->department_id) {
+                throw ValidationException::withMessages(['department_id' => 'Assign the employee to a department first.']);
+            }
+            if (User::where('email', $email)->exists()) {
+                throw ValidationException::withMessages(['email' => 'This email already belongs to another user.']);
+            }
+            if (User::where('username', $username)->exists()) {
+                throw ValidationException::withMessages(['username' => 'This username is already taken.']);
+            }
+
+            $gender = strtolower((string) $employee->gender);
+            $user = User::create([
+                'name' => $employee->full_name,
+                'email' => $email,
+                'username' => $username,
+                'password' => Hash::make($data['password']),
+                'role_id' => $role->id,
+                'department_id' => $employee->department_id,
+                'position' => $employee->position ?: '',
+                'phone' => $employee->phone ?: $employee->mobile_number,
+                'address' => $employee->address ?: $employee->present_address,
+                'gender' => in_array($gender, ['male', 'female', 'other'], true) ? $gender : null,
+                'status' => 'active',
+                'is_disabled' => false,
+            ]);
+            $employee->update(['user_id' => $user->id]);
+
+            return $user;
+        }, 3);
+
+        return $this->success($user->load(['role', 'department']), 'User account created from employee', 201);
     }
 }

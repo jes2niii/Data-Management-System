@@ -132,6 +132,9 @@ class LogActivity
         if (in_array('logout', $segments, true)) {
             return ['auth', 'logout'];
         }
+        if (in_array('create-user', $segments, true)) {
+            return ['users', 'create'];
+        }
 
         $module = match ($resource) {
             'files' => 'documents',
