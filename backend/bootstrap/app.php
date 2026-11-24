@@ -14,10 +14,15 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
             'permission' => \App\Http\Middleware\CheckPermission::class,
+            'account.enabled' => \App\Http\Middleware\EnsureAccountEnabled::class,
         ]);
         // Automatic activity logging for mutating API requests.
-        $middleware->appendToGroup('api', \App\Http\Middleware\LogActivity::class);
+        $middleware->appendToGroup('api', [
+            \App\Http\Middleware\ProfileReports::class,
+            \App\Http\Middleware\LogActivity::class,
+        ]);
+        $middleware->trimStrings(except: ['smtp_password']);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        //
+        $exceptions->dontFlash(['smtp_password']);
     })->create();

@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef } from "react"
 import { useMutation } from "@tanstack/react-query"
+import { useNavigate } from "react-router-dom"
 import { toast } from "sonner"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { z } from "zod"
 import { format } from "date-fns"
-import api from "@/lib/api"
+import api, { resolveFileUrl } from "@/lib/api"
 import { useAuth } from "@/contexts/AuthContext"
+import { passwordSchema, profileSchema } from "@/lib/profile-validation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -16,25 +17,9 @@ import {
   Camera, Save, Lock, Calendar, Shield, User as UserIcon,
 } from "lucide-react"
 
-const profileSchema = z.object({
-  name: z.string().min(2, "Name is required"),
-  email: z.string().email("Invalid email"),
-  phone: z.string().optional(),
-})
-
-const passwordSchema = z
-  .object({
-    current_password: z.string().min(1, "Current password is required"),
-    new_password: z.string().min(6, "Must be at least 6 characters"),
-    confirm_password: z.string().min(1, "Please confirm your password"),
-  })
-  .refine((data) => data.new_password === data.confirm_password, {
-    message: "Passwords do not match",
-    path: ["confirm_password"],
-  })
-
 export default function ProfilePage() {
-  const { user } = useAuth()
+  const { user, updateUser, clearSession } = useAuth()
+  const navigate = useNavigate()
   const fileInputRef = useRef(null)
   const [photo, setPhoto] = useState(null)
   const [photoPreview, setPhotoPreview] = useState(null)
@@ -65,55 +50,81 @@ export default function ProfilePage() {
       email: user?.email || "",
       phone: user?.phone || "",
     })
-    setPhotoPreview(user?.photo_url || user?.avatar || null)
   }, [user, resetProfile])
 
+  useEffect(() => {
+    if (!photo) {
+      setPhotoPreview(null)
+      return
+    }
+    const url = URL.createObjectURL(photo)
+    setPhotoPreview(url)
+    return () => URL.revokeObjectURL(url)
+  }, [photo])
+
+  const savedPhoto = resolveFileUrl(user?.photo_url || user?.avatar || (user?.photo ? `/storage/${user.photo}` : null))
+
   const profileMutation = useMutation({
-    mutationFn: (formData) =>
-      api.post("/profile/update", formData, {
+    mutationFn: (data) => {
+      if (!photo) return api.put("/profile", data)
+      const formData = new FormData()
+      formData.append("_method", "PUT")
+      for (const [field, value] of Object.entries(data)) formData.append(field, value ?? "")
+      formData.append("photo", photo)
+      return api.post("/profile", formData, {
         headers: { "Content-Type": "multipart/form-data" },
-      }),
-    onSuccess: (response) => {
-      toast.success("Profile updated")
-      const updatedUser = response.data?.user || response.data
-      if (updatedUser) {
-        localStorage.setItem("user", JSON.stringify(updatedUser))
-      }
+      })
     },
-    onError: (err) => toast.error(err.response?.data?.message || "Failed to update"),
+    onSuccess: (response) => {
+      updateUser(response.data.data)
+      setPhoto(null)
+      if (fileInputRef.current) fileInputRef.current.value = ""
+      toast.success("Profile updated")
+    },
+    onError: (err) => {
+      const errors = err.response?.data?.errors
+      for (const field of ["name", "email", "phone"]) {
+        if (errors?.[field]?.[0]) profileForm.setError(field, { message: errors[field][0] })
+      }
+      toast.error(errors?.photo?.[0] || err.response?.data?.message || "Failed to update profile")
+    },
   })
 
   const passwordMutation = useMutation({
-    mutationFn: (data) => api.post("/profile/change-password", data),
+    mutationFn: (data) => api.put("/profile", data),
     onSuccess: () => {
-      toast.success("Password changed successfully")
       passwordForm.reset()
+      clearSession()
+      navigate("/login", { replace: true })
+      toast.success("Password changed. Sign in with your new password.")
     },
-    onError: (err) => toast.error(err.response?.data?.message || "Failed to change password"),
+    onError: (err) => {
+      const errors = err.response?.data?.errors
+      if (errors?.current_password?.[0]) passwordForm.setError("current_password", { message: errors.current_password[0] })
+      if (errors?.password?.[0]) passwordForm.setError("new_password", { message: errors.password[0] })
+      toast.error(err.response?.data?.message || "Failed to change password")
+    },
   })
 
-  const onProfileSubmit = (data) => {
-    const formData = new FormData()
-    formData.append("name", data.name)
-    formData.append("email", data.email)
-    if (data.phone) formData.append("phone", data.phone)
-    if (photo) formData.append("photo", photo)
-    profileMutation.mutate(formData)
-  }
+  const onProfileSubmit = (data) => profileMutation.mutate({ ...data, phone: data.phone || null })
 
   const onPasswordSubmit = (data) => {
     passwordMutation.mutate({
       current_password: data.current_password,
-      new_password: data.new_password,
-      new_password_confirmation: data.confirm_password,
+      password: data.new_password,
+      password_confirmation: data.confirm_password,
     })
   }
 
   const handlePhotoChange = (e) => {
     const file = e.target.files?.[0]
     if (file) {
+      if (file.size > 2 * 1024 * 1024) {
+        e.target.value = ""
+        toast.error("Choose an image no larger than 2 MB.")
+        return
+      }
       setPhoto(file)
-      setPhotoPreview(URL.createObjectURL(file))
     }
   }
 
@@ -129,13 +140,15 @@ export default function ProfilePage() {
           <div className="flex flex-col sm:flex-row items-center gap-6">
             <div className="relative">
               <Avatar className="h-24 w-24">
-                <AvatarImage src={photoPreview || ""} />
+                <AvatarImage src={photoPreview || savedPhoto || undefined} alt={`${user?.name || "Account"} avatar`} />
                 <AvatarFallback className="text-2xl">
                   {(user?.name || "U").charAt(0).toUpperCase()}
                 </AvatarFallback>
               </Avatar>
               <button
                 type="button"
+                aria-label="Choose profile photo"
+                disabled={profileMutation.isPending}
                 className="absolute bottom-0 right-0 rounded-full bg-primary p-1.5 text-primary-foreground shadow"
                 onClick={() => fileInputRef.current?.click()}
               >
@@ -174,7 +187,7 @@ export default function ProfilePage() {
                 <p className="text-sm text-destructive">{profileForm.formState.errors.name.message}</p>
               )}
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
                 <Input id="email" type="email" {...profileForm.register("email")} />
@@ -185,6 +198,9 @@ export default function ProfilePage() {
               <div className="space-y-2">
                 <Label htmlFor="phone">Phone</Label>
                 <Input id="phone" {...profileForm.register("phone")} />
+                {profileForm.formState.errors.phone && (
+                  <p className="text-sm text-destructive">{profileForm.formState.errors.phone.message}</p>
+                )}
               </div>
             </div>
             <Button type="submit" disabled={profileMutation.isPending}>
@@ -199,27 +215,27 @@ export default function ProfilePage() {
         <form onSubmit={passwordForm.handleSubmit(onPasswordSubmit)}>
           <CardHeader>
             <CardTitle>Change Password</CardTitle>
-            <CardDescription>Update your account password</CardDescription>
+            <CardDescription>Changing your password signs you out of all devices.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="current_password">Current Password</Label>
-              <Input id="current_password" type="password" {...passwordForm.register("current_password")} />
+              <Input id="current_password" type="password" autoComplete="current-password" {...passwordForm.register("current_password")} />
               {passwordForm.formState.errors.current_password && (
                 <p className="text-sm text-destructive">{passwordForm.formState.errors.current_password.message}</p>
               )}
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="new_password">New Password</Label>
-                <Input id="new_password" type="password" {...passwordForm.register("new_password")} />
+                <Input id="new_password" type="password" autoComplete="new-password" {...passwordForm.register("new_password")} />
                 {passwordForm.formState.errors.new_password && (
                   <p className="text-sm text-destructive">{passwordForm.formState.errors.new_password.message}</p>
                 )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="confirm_password">Confirm Password</Label>
-                <Input id="confirm_password" type="password" {...passwordForm.register("confirm_password")} />
+                <Input id="confirm_password" type="password" autoComplete="new-password" {...passwordForm.register("confirm_password")} />
                 {passwordForm.formState.errors.confirm_password && (
                   <p className="text-sm text-destructive">{passwordForm.formState.errors.confirm_password.message}</p>
                 )}

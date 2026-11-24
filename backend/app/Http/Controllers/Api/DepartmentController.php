@@ -70,8 +70,15 @@ class DepartmentController extends Controller
 
     public function destroy($id)
     {
-        $department = Department::findOrFail($id);
-        $department->delete();
+        \Illuminate\Support\Facades\DB::transaction(function () use ($id) {
+            $department = Department::lockForUpdate()->findOrFail($id);
+            abort_if(
+                $department->users()->withTrashed()->exists() || $department->employees()->withTrashed()->exists(),
+                409,
+                'Reassign users and employees before deleting this department.'
+            );
+            $department->delete();
+        });
 
         return $this->success(null, 'Department deleted');
     }

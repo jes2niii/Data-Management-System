@@ -5,6 +5,9 @@ import AppLayout from "@/components/layout/AppLayout"
 import { lazy, Suspense } from "react"
 import { useAuth } from "@/contexts/AuthContext"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Button } from "@/components/ui/button"
+import AccessMessage from "@/components/layout/AccessMessage"
+import { canOpenPage } from "@/lib/access"
 
 const DashboardPage = lazy(() => import("@/pages/dashboard/DashboardPage"))
 const LoginPage = lazy(() => import("@/pages/auth/LoginPage"))
@@ -49,35 +52,35 @@ function Providers({ children }) {
 }
 
 function ProtectedRoute({ children }) {
-  const { isAuthenticated, loading } = useAuth()
-  if (loading) return (
-    <div className="flex h-screen items-center justify-center">
-      <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-    </div>
-  )
+  const { isAuthenticated, loading, sessionError } = useAuth()
+  if (loading || sessionError) return <SessionStatus />
   if (!isAuthenticated) return <Navigate to="/login" replace />
   return children
 }
 
 function PublicRoute({ children }) {
-  const { isAuthenticated, loading } = useAuth()
-  if (loading) return (
-    <div className="flex h-screen items-center justify-center">
-      <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-    </div>
-  )
+  const { isAuthenticated, loading, sessionError } = useAuth()
+  if (loading || sessionError) return <SessionStatus />
   if (isAuthenticated) return <Navigate to="/dashboard" replace />
   return children
 }
 
-function NotFound() {
+function SessionStatus() {
+  const { loading, retrySession } = useAuth()
   return (
-    <div className="flex h-[60vh] flex-col items-center justify-center gap-4">
-      <h1 className="text-4xl font-bold">404</h1>
-      <p className="text-muted-foreground">Page not found</p>
-      <a href="/dashboard" className="text-primary hover:underline">Go to Dashboard</a>
+    <div className="flex min-h-dvh flex-col items-center justify-center gap-3 p-4 text-center">
+      {loading ? <p role="status">Checking your session…</p> : <>
+        <p role="alert">Could not verify your session. Check your connection and try again.</p>
+        <Button onClick={retrySession}>Retry</Button>
+      </>}
     </div>
   )
+}
+
+function ModuleRoute({ page, children }) {
+  const { user } = useAuth()
+  if (!canOpenPage(user, page)) return <AccessMessage />
+  return <Suspense fallback={<SuspenseFallback />}>{children}</Suspense>
 }
 
 export const router = createBrowserRouter([
@@ -101,28 +104,28 @@ export const router = createBrowserRouter([
         ),
         children: [
           { index: true, element: <Navigate to="/dashboard" replace /> },
-          { path: "dashboard", element: <Suspense fallback={<SuspenseFallback />}><DashboardPage /></Suspense> },
-          { path: "users", element: <Suspense fallback={<SuspenseFallback />}><UsersPage /></Suspense> },
-          { path: "employees", element: <Suspense fallback={<SuspenseFallback />}><EmployeesPage /></Suspense> },
-          { path: "employees/:id", element: <Suspense fallback={<SuspenseFallback />}><EmployeeDetailPage /></Suspense> },
-          { path: "files", element: <Suspense fallback={<SuspenseFallback />}><FilesPage /></Suspense> },
-          { path: "forms", element: <Suspense fallback={<SuspenseFallback />}><FormsPage /></Suspense> },
-          { path: "billing", element: <Suspense fallback={<SuspenseFallback />}><BillsPage /></Suspense> },
-          { path: "billing/analytics", element: <Suspense fallback={<SuspenseFallback />}><BillingAnalytics /></Suspense> },
-          { path: "billing/subscriptions", element: <Suspense fallback={<SuspenseFallback />}><SubscriptionsPage /></Suspense> },
-          { path: "activity-logs", element: <Suspense fallback={<SuspenseFallback />}><ActivityLogsPage /></Suspense> },
-          { path: "reports", element: <Suspense fallback={<SuspenseFallback />}><ReportsPage /></Suspense> },
+          { path: "dashboard", element: <ModuleRoute page="dashboard"><DashboardPage /></ModuleRoute> },
+          { path: "users", element: <ModuleRoute page="users"><UsersPage /></ModuleRoute> },
+          { path: "employees", element: <ModuleRoute page="employees"><EmployeesPage /></ModuleRoute> },
+          { path: "employees/:id", element: <ModuleRoute page="employees"><EmployeeDetailPage /></ModuleRoute> },
+          { path: "files", element: <ModuleRoute page="files"><FilesPage /></ModuleRoute> },
+          { path: "forms", element: <ModuleRoute page="forms"><FormsPage /></ModuleRoute> },
+          { path: "billing", element: <ModuleRoute page="billing"><BillsPage /></ModuleRoute> },
+          { path: "billing/analytics", element: <ModuleRoute page="billing"><BillingAnalytics /></ModuleRoute> },
+          { path: "billing/subscriptions", element: <ModuleRoute page="billing"><SubscriptionsPage /></ModuleRoute> },
+          { path: "activity-logs", element: <ModuleRoute page="activity-logs"><ActivityLogsPage /></ModuleRoute> },
+          { path: "reports", element: <ModuleRoute page="reports"><ReportsPage /></ModuleRoute> },
           { path: "settings", element: <Suspense fallback={<SuspenseFallback />}><SettingsPage /></Suspense> },
-          { path: "notifications", element: <Suspense fallback={<SuspenseFallback />}><NotificationsPage /></Suspense> },
-          { path: "profile", element: <Suspense fallback={<SuspenseFallback />}><ProfilePage /></Suspense> },
-          { path: "roles", element: <Suspense fallback={<SuspenseFallback />}><RolesPermissionsPage /></Suspense> },
-          { path: "items", element: <Suspense fallback={<SuspenseFallback />}><ItemsPage /></Suspense> },
-          { path: "attendance", element: <Suspense fallback={<SuspenseFallback />}><AttendancePage /></Suspense> },
-          { path: "training", element: <Suspense fallback={<SuspenseFallback />}><TrainingMonitoringPage /></Suspense> },
+          { path: "notifications", element: <ModuleRoute page="notifications"><NotificationsPage /></ModuleRoute> },
+          { path: "profile", element: <ModuleRoute page="profile"><ProfilePage /></ModuleRoute> },
+          { path: "roles", element: <ModuleRoute page="roles"><RolesPermissionsPage /></ModuleRoute> },
+          { path: "items", element: <ModuleRoute page="items"><ItemsPage /></ModuleRoute> },
+          { path: "attendance", element: <ModuleRoute page="attendance"><AttendancePage /></ModuleRoute> },
+          { path: "training", element: <ModuleRoute page="training"><TrainingMonitoringPage /></ModuleRoute> },
           { path: "training-monitoring", element: <Navigate to="/training" replace /> },
-          { path: "inventory", element: <Suspense fallback={<SuspenseFallback />}><InventoryPage /></Suspense> },
-          { path: "books", element: <Suspense fallback={<SuspenseFallback />}><BookInventoryPage /></Suspense> },
-          { path: "*", element: <NotFound /> },
+          { path: "inventory", element: <ModuleRoute page="inventory"><InventoryPage /></ModuleRoute> },
+          { path: "books", element: <ModuleRoute page="books"><BookInventoryPage /></ModuleRoute> },
+          { path: "*", element: <AccessMessage missing /> },
         ],
       },
       { path: "*", element: <Navigate to="/dashboard" replace /> },

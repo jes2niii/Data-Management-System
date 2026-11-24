@@ -1,5 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import api from "@/lib/api"
+import { useAuth } from "@/contexts/AuthContext"
+import { hasPermission } from "@/lib/access"
 
 const currencySymbols = {
   USD: "$",
@@ -14,14 +16,17 @@ const currencySymbols = {
 }
 
 export function useCurrency() {
+  const { user } = useAuth()
+  const canRead = hasPermission(user, "settings.read")
   const { data } = useQuery({
     queryKey: ["settings"],
-    queryFn: () => api.get("/settings").then((r) => r.data).catch(() => ({ data: { currency: "PHP" } })),
+    queryFn: () => api.get("/settings").then((r) => r.data),
+    enabled: canRead,
     staleTime: 1000 * 60 * 30,
     retry: false,
   })
 
-  const settings = data?.data || {}
+  const settings = (canRead && data?.data) || {}
   const currency = settings.currency || "PHP"
   const symbol = currencySymbols[currency] || currency
 

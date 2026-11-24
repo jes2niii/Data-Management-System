@@ -25,17 +25,13 @@ import {
   ChevronDown,
 } from "lucide-react"
 
-export default function Header({ toggleSidebar, darkMode, toggleDarkMode }) {
+export default function Header({ toggleSidebar, menuButton, sidebarExpanded, sidebarControls, darkMode, toggleDarkMode }) {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
 
   const initials = user?.name
     ? user.name.split(" ").map((n) => n[0]).join("").toUpperCase()
     : "U"
-
-  const userPerms = user?.permissions || user?.role?.permissions || []
-  const permNames = userPerms.map(p => typeof p === "object" ? p.name : p)
-  const canAccessSettings = user?.role?.name === "Super Admin" || permNames.includes("settings.read")
 
   const { data: notifData } = useQuery({
     queryKey: ["header-notifications"],
@@ -54,7 +50,8 @@ export default function Header({ toggleSidebar, darkMode, toggleDarkMode }) {
 
   return (
     <header className="relative flex h-14 shrink-0 items-center gap-1.5 border-b bg-background px-2 after:absolute after:inset-x-0 after:bottom-[-1px] after:h-[2px] after:bg-gradient-to-r after:from-[#130a5c] after:via-[#ffcc0a] after:to-[#130a5c] after:opacity-70 sm:gap-2 sm:px-4">
-      <Button variant="ghost" size="icon" className="h-10 w-10 shrink-0" onClick={toggleSidebar} aria-label="Toggle sidebar">
+      <Button ref={menuButton} variant="ghost" size="icon" className="h-10 w-10 shrink-0" onClick={toggleSidebar}
+        aria-label="Toggle navigation" aria-expanded={sidebarExpanded} aria-controls={sidebarControls}>
         <Menu className="h-5 w-5" />
       </Button>
 
@@ -114,7 +111,7 @@ export default function Header({ toggleSidebar, darkMode, toggleDarkMode }) {
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="flex h-10 items-center gap-2 rounded-full px-1 sm:px-2">
+            <Button variant="ghost" aria-label="Account menu" className="flex h-10 items-center gap-2 rounded-full px-1 sm:px-2">
               <Avatar className="h-8 w-8 shrink-0 ring-2 ring-[#ffcc0a]/50">
                 <AvatarFallback className="bg-primary text-xs font-bold text-primary-foreground">{initials}</AvatarFallback>
               </Avatar>
@@ -139,14 +136,12 @@ export default function Header({ toggleSidebar, darkMode, toggleDarkMode }) {
               Profile
             </Link>
           </DropdownMenuItem>
-          {canAccessSettings && (
             <DropdownMenuItem asChild>
               <Link to="/settings" className="cursor-pointer">
                 <Settings className="mr-2 h-4 w-4" />
                 Settings
               </Link>
             </DropdownMenuItem>
-          )}
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={logout} className="cursor-pointer">
             <LogOut className="mr-2 h-4 w-4" />

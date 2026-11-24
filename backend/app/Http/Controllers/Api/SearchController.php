@@ -24,10 +24,18 @@ class SearchController extends Controller
             $modules = explode(',', $modules);
         }
 
+        abort_unless(is_array($modules), 422, 'Modules must be a list or comma-separated string.');
+        $user = $request->user();
+        $allowedModules = array_filter(
+            ['employees', 'users', 'files', 'forms', 'bills', 'activity_logs'],
+            fn (string $module) => $user->hasPermission($module === 'files' ? 'documents' : $module, 'read')
+        );
+        $modules = array_filter($modules, fn ($module) => is_string($module) && in_array($module, $allowedModules, true));
+
         $results = [];
 
         if (in_array('employees', $modules)) {
-            $query = Employee::with('department');
+            $query = Employee::select('id', 'employee_id', 'full_name', 'position', 'department_id')->with('department:id,name');
             if ($keyword) {
                 $query->where(function ($q) use ($keyword) {
                     $q->where('full_name', 'like', "%{$keyword}%")
@@ -46,7 +54,7 @@ class SearchController extends Controller
         }
 
         if (in_array('users', $modules)) {
-            $query = User::with(['role', 'department']);
+            $query = User::select('id', 'name', 'email', 'username', 'role_id')->with('role:id,name');
             if ($keyword) {
                 $query->where(function ($q) use ($keyword) {
                     $q->where('name', 'like', "%{$keyword}%")
@@ -65,7 +73,7 @@ class SearchController extends Controller
         }
 
         if (in_array('files', $modules)) {
-            $query = Document::with(['folder', 'creator']);
+            $query = Document::select('id', 'name', 'original_name', 'file_type', 'folder_id')->visibleTo($user)->with('folder:id,name');
             if ($keyword) {
                 $query->where(function ($q) use ($keyword) {
                     $q->where('name', 'like', "%{$keyword}%")
@@ -91,7 +99,7 @@ class SearchController extends Controller
         }
 
         if (in_array('forms', $modules)) {
-            $query = Form::with('creator');
+            $query = Form::select('id', 'name', 'description');
             if ($keyword) {
                 $query->where(function ($q) use ($keyword) {
                     $q->where('name', 'like', "%{$keyword}%")
@@ -99,13 +107,13 @@ class SearchController extends Controller
                 });
             }
             if ($request->filled('category')) {
-                $query->where('category', $request->category);
+                $query->where('form_category_id', $request->category);
             }
             $results['forms'] = $query->limit(20)->get();
         }
 
         if (in_array('bills', $modules)) {
-            $query = Bill::with(['category', 'creator']);
+            $query = Bill::select('id', 'name', 'provider', 'reference_number', 'amount');
             if ($keyword) {
                 $query->where(function ($q) use ($keyword) {
                     $q->where('name', 'like', "%{$keyword}%")
@@ -123,7 +131,7 @@ class SearchController extends Controller
         }
 
         if (in_array('activity_logs', $modules)) {
-            $query = ActivityLog::with('user');
+            $query = ActivityLog::select('id', 'user_id', 'description', 'module', 'action')->with('user:id,name');
             if ($keyword) {
                 $query->where(function ($q) use ($keyword) {
                     $q->where('description', 'like', "%{$keyword}%")

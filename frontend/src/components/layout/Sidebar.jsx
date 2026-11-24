@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react"
-import { NavLink, useLocation } from "react-router-dom"
+import { Link, NavLink, useLocation } from "react-router-dom"
 import { useAuth } from "@/contexts/AuthContext"
 import { useBranding } from "@/hooks/useBranding"
 import { cn } from "@/lib/utils"
+import { canOpenPage, canOpenSettingsTab, settingsTabFor } from "@/lib/access"
 import {
   LayoutDashboard,
   Users,
@@ -25,7 +26,6 @@ import {
   Beaker,
   Calendar,
   GraduationCap,
-  Trash2,
   Palette,
   Boxes,
   Library,
@@ -33,47 +33,36 @@ import {
 } from "lucide-react"
 
 const navItems = [
-  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, permission: null },
-  { to: "/users", label: "Users", icon: Users, permission: "users.read" },
-  { to: "/employees", label: "Employees", icon: UserCircle, permission: "employees.read" },
-  { to: "/files", label: "Files", icon: FileText, permission: "documents.read" },
-  { to: "/forms", label: "Forms", icon: FileSpreadsheet, permission: "forms.read" },
-  { to: "/billing", label: "Billing", icon: DollarSign, permission: "bills.read" },
-  { to: "/attendance", label: "Attendance", icon: Calendar, permission: null },
-  { to: "/training", label: "Training Monitoring", icon: GraduationCap, permission: null },
-  { to: "/inventory", label: "Inventory", icon: Boxes, permission: "inventory.read" },
-  { to: "/books", label: "Book Inventory", icon: Library, permission: null },
-  { to: "/activity-logs", label: "Activity Logs", icon: Activity, permission: "activity_logs.read" },
-  { to: "/reports", label: "Reports", icon: BarChart3, permission: "reports.read" },
-  { to: "/notifications", label: "Notifications", icon: Bell, permission: null },
-  { to: "/profile", label: "Profile", icon: User, permission: null },
+  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { to: "/users", label: "Users", icon: Users },
+  { to: "/employees", label: "Employees", icon: UserCircle },
+  { to: "/files", label: "Files", icon: FileText },
+  { to: "/forms", label: "Forms", icon: FileSpreadsheet },
+  { to: "/billing", label: "Billing", icon: DollarSign },
+  { to: "/attendance", label: "Attendance", icon: Calendar },
+  { to: "/training", label: "Training Monitoring", icon: GraduationCap },
+  { to: "/inventory", label: "Inventory", icon: Boxes },
+  { to: "/books", label: "Book Inventory", icon: Library },
+  { to: "/activity-logs", label: "Activity Logs", icon: Activity },
+  { to: "/reports", label: "Reports", icon: BarChart3 },
+  { to: "/notifications", label: "Notifications", icon: Bell },
+  { to: "/profile", label: "Profile", icon: User },
 ]
 
 const settingsSubItems = [
-  { to: "/settings?tab=general", label: "General", icon: Building2, permission: "settings.read" },
-  { to: "/settings?tab=personalization", label: "Personalization", icon: Palette, permission: null },
-  { to: "/settings?tab=email", label: "Email SMTP", icon: Mail, permission: "settings.read" },
-  { to: "/settings?tab=categories", label: "Categories", icon: Tags, permission: "settings.read" },
-  { to: "/settings?tab=trainings", label: "Trainings", icon: GraduationCap, permission: "settings.read" },
-  { to: "/settings?tab=roles", label: "Roles & Permissions", icon: Shield, permission: "roles.read" },
-  { to: "/settings?tab=reset", label: "Reset Data", icon: Trash2, permission: "settings.update" },
+  { tab: "general", label: "General", icon: Building2 },
+  { tab: "personalization", label: "Personalization", icon: Palette },
+  { tab: "email", label: "Email SMTP", icon: Mail },
+  { tab: "categories", label: "Categories", icon: Tags },
+  { tab: "trainings", label: "Trainings", icon: GraduationCap },
+  { tab: "roles", label: "Roles & Permissions", icon: Shield },
 ]
 
 const itemAnalysisSubItems = [
-  { to: "/items?tab=survey", label: "Surveys", icon: ClipboardList, permission: "surveys" },
-  { to: "/items?tab=test", label: "Test Items", icon: Beaker, permission: "surveys" },
+  { tab: "survey", label: "Surveys", icon: ClipboardList },
+  { tab: "test", label: "Test Items", icon: Beaker },
 ]
-
-function hasPermission(user, permission) {
-  if (!permission) return true
-  if (!user) return false
-  if (user.role?.name === "Super Admin") return true
-  const perms = user.permissions || user.role?.permissions || []
-  const names = perms.map(p => typeof p === "object" ? p.name : p)
-  return names.includes(permission)
-}
-
-export default function Sidebar({ isOpen, onClose, isMobile }) {
+export default function Sidebar({ isOpen, onClose, onExpand, isMobile }) {
   const location = useLocation()
   const { user } = useAuth()
   const { companyName = "SEATECH", logoUrl = null } = useBranding()
@@ -91,8 +80,9 @@ export default function Sidebar({ isOpen, onClose, isMobile }) {
     if (isItemsActive) setItemAnalysisOpen(true)
   }, [isItemsActive])
 
-  const visibleItems = navItems.filter((item) => hasPermission(user, item.permission))
-  const visibleSubItems = settingsSubItems.filter((item) => hasPermission(user, item.permission))
+  const visibleItems = navItems.filter((item) => canOpenPage(user, item.to.slice(1)))
+  const visibleSubItems = settingsSubItems.filter((item) => canOpenSettingsTab(user, item.tab))
+  const visibleAnalysisItems = canOpenPage(user, "items") ? itemAnalysisSubItems : []
   const hasSettingsAccess = visibleSubItems.length > 0
 
   const closeOnMobile = () => {
@@ -101,13 +91,11 @@ export default function Sidebar({ isOpen, onClose, isMobile }) {
 
   return (
     <aside
+      id={isMobile ? undefined : "desktop-sidebar"}
       className={cn(
         "flex flex-col border-r bg-sidebar-background transition-all duration-300",
-        // Mobile: fixed drawer that slides in/out; Desktop: static flex child
-        "fixed inset-y-0 left-0 z-50 h-dvh md:static md:z-auto md:h-auto",
-        isOpen
-          ? "w-[17rem] translate-x-0 sm:w-64"
-          : "-translate-x-full md:translate-x-0 md:w-16 md:overflow-hidden"
+        isMobile ? "h-full w-full" : "hidden md:flex",
+        !isMobile && (isOpen ? "w-64" : "w-16 overflow-hidden")
       )}
     >
       <div className="flex h-16 shrink-0 flex-col justify-center gap-1.5 border-b border-sidebar-border bg-sidebar-background px-4">
@@ -154,17 +142,17 @@ export default function Sidebar({ isOpen, onClose, isMobile }) {
             )}
           </div>
         </div>
-          <button
+          {isMobile && <button type="button"
             onClick={onClose}
             aria-label="Close menu"
             className="rounded-md p-2 text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground md:hidden"
           >
             <X className="h-5 w-5" />
-          </button>
+          </button>}
         </div>
         <div className={cn("seatech-brand-bar w-full rounded-full", !isOpen && "md:hidden")} />
       </div>
-      <nav className="flex-1 space-y-1 overflow-y-auto overscroll-contain p-2 pb-6">
+      <nav aria-label="Main navigation" className="flex-1 space-y-1 overflow-y-auto overscroll-contain p-2 pb-6">
         {visibleItems.map((item) => {
           const Icon = item.icon
           const isActive = location.pathname === item.to || location.pathname.startsWith(item.to + "/")
@@ -172,6 +160,7 @@ export default function Sidebar({ isOpen, onClose, isMobile }) {
             <NavLink
               key={item.to}
               to={item.to}
+              aria-label={item.label}
               onClick={closeOnMobile}
               className={cn(
                 "flex min-h-[44px] items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors",
@@ -187,10 +176,11 @@ export default function Sidebar({ isOpen, onClose, isMobile }) {
           )
         })}
 
-        <div>
+        {visibleAnalysisItems.length > 0 && <div>
           <button
-            onClick={() => setItemAnalysisOpen(!itemAnalysisOpen)}
-            aria-expanded={itemAnalysisOpen}
+            onClick={() => { if (!isOpen) onExpand(); setItemAnalysisOpen(!isOpen || !itemAnalysisOpen) }}
+            aria-label="Item Analysis"
+            aria-expanded={isOpen && itemAnalysisOpen}
             className={cn(
               "flex min-h-[44px] items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors w-full",
               isItemsActive
@@ -203,17 +193,17 @@ export default function Sidebar({ isOpen, onClose, isMobile }) {
             <span className={cn("flex-1 truncate text-left", !isOpen && "md:hidden")}>Item Analysis</span>
             <ChevronDown className={cn("h-4 w-4 shrink-0 transition-transform", itemAnalysisOpen && "rotate-180", !isOpen && "md:hidden")} />
           </button>
-          {itemAnalysisOpen && (
+          {isOpen && itemAnalysisOpen && (
             <div className="ml-2 mt-1 space-y-1 border-l-2 border-muted pl-2">
-              {itemAnalysisSubItems.map((sub) => {
+              {visibleAnalysisItems.map((sub) => {
                 const SubIcon = sub.icon
-                const subTab = new URLSearchParams(sub.to.split("?")[1]).get("tab")
-                const currentTab = new URLSearchParams(location.search).get("tab") || "survey"
-                const subActive = isItemsActive && currentTab === subTab
+                 const currentTab = new URLSearchParams(location.search).get("tab") || "survey"
+                 const subActive = isItemsActive && currentTab === sub.tab
                 return (
-                  <NavLink
-                    key={sub.to}
-                    to={sub.to}
+                   <Link
+                     key={sub.tab}
+                     to={`/items?tab=${sub.tab}`}
+                     aria-current={subActive ? "page" : undefined}
                     onClick={closeOnMobile}
                     className={cn(
                       "flex min-h-[40px] items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
@@ -225,18 +215,19 @@ export default function Sidebar({ isOpen, onClose, isMobile }) {
                   >
                     <SubIcon className="h-4 w-4 shrink-0" />
                     <span className="truncate">{sub.label}</span>
-                  </NavLink>
+                   </Link>
                 )
               })}
             </div>
           )}
-        </div>
+        </div>}
 
         {hasSettingsAccess && (
         <div>
           <button
-            onClick={() => setSettingsOpen(!settingsOpen)}
-            aria-expanded={settingsOpen}
+            onClick={() => { if (!isOpen) onExpand(); setSettingsOpen(!isOpen || !settingsOpen) }}
+            aria-label="Settings"
+            aria-expanded={isOpen && settingsOpen}
             className={cn(
               "flex min-h-[44px] items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors w-full",
               isSettingsActive
@@ -249,20 +240,20 @@ export default function Sidebar({ isOpen, onClose, isMobile }) {
             <span className={cn("flex-1 truncate text-left", !isOpen && "md:hidden")}>Settings</span>
             <ChevronDown className={cn("h-4 w-4 shrink-0 transition-transform", settingsOpen && "rotate-180", !isOpen && "md:hidden")} />
           </button>
-          {settingsOpen && (
+          {isOpen && settingsOpen && (
             <div className="ml-2 mt-1 space-y-1 border-l-2 border-muted pl-2">
               {visibleSubItems.map((sub) => {
                 const SubIcon = sub.icon
                 // match tab param — only when actually on a /settings route,
                 // otherwise every expand would highlight the default tab.
                 const params = new URLSearchParams(location.search)
-                const currentTab = params.get("tab") || "general"
-                const subTab = new URLSearchParams(sub.to.split("?")[1]).get("tab")
-                const subActive = isSettingsActive && currentTab === subTab
+                 const currentTab = settingsTabFor(user, params.get("tab"))
+                 const subActive = isSettingsActive && currentTab === sub.tab
                 return (
-                  <NavLink
-                    key={sub.to}
-                    to={sub.to}
+                   <Link
+                     key={sub.tab}
+                     to={`/settings?tab=${sub.tab}`}
+                     aria-current={subActive ? "page" : undefined}
                     onClick={closeOnMobile}
                     className={cn(
                       "flex min-h-[40px] items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
@@ -274,7 +265,7 @@ export default function Sidebar({ isOpen, onClose, isMobile }) {
                   >
                     <SubIcon className="h-4 w-4 shrink-0" />
                     <span className="truncate">{sub.label}</span>
-                  </NavLink>
+                   </Link>
                 )
               })}
             </div>

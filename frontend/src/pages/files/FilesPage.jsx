@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { useDropzone } from "react-dropzone"
 import { format } from "date-fns"
-import api from "@/lib/api"
+import api, { downloadDocument } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -483,9 +483,12 @@ export default function FilesPage() {
                 <Eye className="mr-2 h-4 w-4" /> Preview
               </button>
               {targetFile?.file_path && (
-                <a href={`/api/files/${targetFile.id}/download`} download className="flex w-full items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent" onClick={() => setMenuFileId(null)}>
+                <button type="button" className="flex w-full items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent" onClick={() => {
+                  setMenuFileId(null)
+                  downloadDocument(targetFile).catch(() => toast.error("Could not download this file."))
+                }}>
                   <Download className="mr-2 h-4 w-4" /> Download
-                </a>
+                </button>
               )}
               <button className="flex w-full items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent" onClick={() => { toggleFavoriteMutation.mutate(targetFile.id); setMenuFileId(null) }}>
                 <Star className={cn("mr-2 h-4 w-4", targetFile?.is_favorite && "text-yellow-500 fill-yellow-500")} />

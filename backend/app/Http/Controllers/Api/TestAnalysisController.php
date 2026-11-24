@@ -9,6 +9,8 @@ use App\Models\TestItem;
 use App\Models\TestItemAnalysis;
 use App\Models\TestStudent;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class TestAnalysisController extends Controller
 {
@@ -139,41 +141,49 @@ class TestAnalysisController extends Controller
 
     public function addStudents(Request $request, $id)
     {
-        $exam = TestExam::with('items')->findOrFail($id);
-        $request->validate([
-            'students' => 'required|array|min:1',
+        $data = $request->validate([
+            'students' => 'required|array|list|min:1',
             'students.*.name' => 'required|string|max:255',
-            'students.*.answers' => 'required|array',
-            'students.*.answers.*.item_id' => 'required|exists:test_items,id',
+            'students.*.answers' => 'required|array|list',
+            'students.*.answers.*' => 'required|array:item_id,answer',
+            'students.*.answers.*.item_id' => 'required|integer|min:1',
             'students.*.answers.*.answer' => 'nullable|string|max:50',
         ]);
 
-        foreach ($request->students as $studentData) {
-            $correctCount = 0;
-            $student = TestStudent::create([
-                'test_exam_id' => $exam->id,
-                'name' => $studentData['name'],
-            ]);
+        $exam = DB::transaction(function () use ($id, $data) {
+            $exam = TestExam::lockForUpdate()->findOrFail($id);
+            $items = $exam->items()->lockForUpdate()->get()->keyBy('id');
+            $totalItems = $items->count();
 
-            foreach ($studentData['answers'] as $ans) {
-                $item = TestItem::find($ans['item_id']);
-                $isCorrect = $item && $ans['answer'] === $item->correct_answer;
-                if ($isCorrect) $correctCount++;
-                TestAnswer::create([
-                    'test_student_id' => $student->id,
-                    'test_item_id' => $ans['item_id'],
-                    'answer' => $ans['answer'] ?? '',
-                    'is_correct' => $isCorrect,
+            foreach ($data['students'] as $studentIndex => $studentData) {
+                $answers = [];
+                $correctCount = 0;
+                foreach ($studentData['answers'] as $answerIndex => $answer) {
+                    $itemId = (int) $answer['item_id'];
+                    $item = $items->get($itemId);
+                    $field = "students.{$studentIndex}.answers.{$answerIndex}.item_id";
+                    if ($item === null || isset($answers[$itemId])) {
+                        throw ValidationException::withMessages([
+                            $field => $item === null ? 'The item must belong to this exam.' : 'Each student may answer an item only once.',
+                        ]);
+                    }
+                    $value = $answer['answer'] ?? '';
+                    $correct = $value !== '' && $value === $item->correct_answer;
+                    $correctCount += (int) $correct;
+                    $answers[$itemId] = ['test_item_id' => $itemId, 'answer' => $value, 'is_correct' => $correct];
+                }
+
+                $student = $exam->students()->create([
+                    'name' => $studentData['name'],
+                    'total_score' => $correctCount,
+                    'items_correct' => $correctCount,
+                    'percentage' => $totalItems > 0 ? round($correctCount / $totalItems * 100, 2) : 0,
                 ]);
+                $student->answers()->createMany($answers);
             }
 
-            $totalItems = $exam->items->count();
-            $student->update([
-                'total_score' => $correctCount,
-                'items_correct' => $correctCount,
-                'percentage' => $totalItems > 0 ? round(($correctCount / $totalItems) * 100, 2) : 0,
-            ]);
-        }
+            return $exam;
+        });
 
         return $this->success($exam->load('students'), 'Students added', 201);
     }

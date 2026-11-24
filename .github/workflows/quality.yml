@@ -1,0 +1,114 @@
+name: Quality checks
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Laravel tests (SQLite)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo_sqlite, mbstring, gd, zip
+          coverage: none
+      - run: composer install --no-interaction --prefer-dist
+      - run: composer check-platform-reqs
+      - run: php vendor/bin/phpunit --do-not-cache-result
+      - run: composer audit --locked --no-interaction
+
+  frontend:
+    name: React tests, lint and build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run lint
+      - run: npm run build
+      - run: npm audit --audit-level=high
+
+  mysql:
+    name: Fresh MySQL schema and API checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      APP_ENV: testing
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: '33306'
+      DB_DATABASE: dms_ci
+      DB_USERNAME: dms_ci
+      DB_URL: ''
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo_mysql, mbstring, gd, zip
+          coverage: none
+      - run: composer install --no-interaction --prefer-dist
+      - name: Start a disposable loopback-only database
+        shell: bash
+        run: |
+          export MYSQL_ROOT_PASSWORD="$(openssl rand -hex 24)"
+          export MYSQL_PASSWORD="$(openssl rand -hex 24)"
+          echo "::add-mask::$MYSQL_ROOT_PASSWORD"
+          echo "::add-mask::$MYSQL_PASSWORD"
+          docker run --detach --rm --name "dms-ci-mysql-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
+            --publish "127.0.0.1:${DB_PORT}:3306" \
+            --env MYSQL_ROOT_PASSWORD --env MYSQL_PASSWORD \
+            --env MYSQL_DATABASE="$DB_DATABASE" --env MYSQL_USER="$DB_USERNAME" mysql:8.0
+          printf 'DB_PASSWORD=%s\n' "$MYSQL_PASSWORD" >> "$GITHUB_ENV"
+      - name: Wait for the test account to connect
+        shell: bash
+        run: |
+          for attempt in {1..30}; do
+            if php -r 'try { new PDO("mysql:host=".getenv("DB_HOST").";port=".getenv("DB_PORT").";dbname=".getenv("DB_DATABASE"), getenv("DB_USERNAME"), getenv("DB_PASSWORD"), [PDO::ATTR_TIMEOUT => 2]); } catch (PDOException) { exit(1); }'; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::Disposable MySQL did not become ready."
+          exit 1
+      - name: Apply the migration chain to the empty CI schema
+        run: php artisan migrate --database=mysql --force --no-interaction
+      - name: Run API regression tests on MySQL
+        env:
+          DMS_CI_MYSQL: '1'
+        run: php vendor/bin/phpunit --do-not-cache-result --filter ContainmentTest
+      - name: Remove the disposable database
+        if: always()
+        shell: bash
+        run: |
+          name="dms-ci-mysql-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          if docker container inspect "$name" >/dev/null 2>&1; then
+            docker stop "$name"
+          fi

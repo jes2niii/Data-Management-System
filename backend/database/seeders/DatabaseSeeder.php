@@ -15,11 +15,18 @@ class DatabaseSeeder extends Seeder
 {
     public function run(): void
     {
+        $email = config('dms.bootstrap_admin_email');
+        $password = config('dms.bootstrap_admin_password');
+        if (!is_string($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)
+            || !is_string($password) || strlen($password) < 16 || strlen($password) > 72) {
+            throw new \RuntimeException('Set a valid DMS_BOOTSTRAP_ADMIN_EMAIL and a DMS_BOOTSTRAP_ADMIN_PASSWORD of 16–72 bytes before initial seeding.');
+        }
+
         $roles = $this->createRoles();
         $permissions = $this->createPermissions();
         $this->assignPermissionsToRoles($roles, $permissions);
         $this->createDefaultDepartments();
-        $this->createUsers($roles);
+        $this->createAdmin($roles, $email, $password);
         $this->createDefaultBillCategories();
         $this->createDefaultFormCategories();
         $this->createDefaultDocumentCategories();
@@ -29,14 +36,13 @@ class DatabaseSeeder extends Seeder
         $this->createDefaultSettings();
         $this->call(TrainingCategorySeeder::class);
         $this->call(TrainingCourseSeeder::class);
-        $this->call(BillSeeder::class);
-        $this->call(EmployeeSeeder::class);
-        $this->call(AttendanceSeeder::class);
-        $this->call(TrainingMonitoringSeeder::class);
-        $this->call(SubscriptionSeeder::class);
-        $this->call(InventorySeeder::class);
-        $this->call(SupplyChainInventorySeeder::class);
-        $this->call(BookSeeder::class);
+        if (app()->environment('local', 'testing') && config('dms.demo_seed')) {
+            $this->call([
+                BillSeeder::class, EmployeeSeeder::class, AttendanceSeeder::class,
+                TrainingMonitoringSeeder::class, SubscriptionSeeder::class, InventorySeeder::class,
+                SupplyChainInventorySeeder::class, BookSeeder::class,
+            ]);
+        }
     }
 
     private function createRoles(): array
@@ -87,6 +93,7 @@ class DatabaseSeeder extends Seeder
             'inventory_suppliers',
             'book_inventories',
             'book_categories',
+            'items',
         ];
 
         $actions = ['create', 'read', 'update', 'delete', 'export'];
@@ -168,31 +175,21 @@ class DatabaseSeeder extends Seeder
         $roles['Viewer']->permissions()->sync($viewerPerms);
     }
 
-    private function createUsers(array $roles): void
+    private function createAdmin(array $roles, string $email, string $password): void
     {
         $itDept = Department::where('name', 'IT')->first();
 
         User::create([
             'name' => 'Super Admin',
             'username' => 'admin',
-            'email' => 'admin@admin.com',
-            'password' => Hash::make('password'),
+            'email' => $email,
+            'password' => Hash::make($password),
             'position' => 'System Administrator',
             'department_id' => $itDept->id,
             'role_id' => $roles['Super Admin']->id,
             'status' => 'active',
         ]);
 
-        User::create([
-            'name' => 'Administrator',
-            'username' => 'admin2',
-            'email' => 'admin2@admin.com',
-            'password' => Hash::make('password'),
-            'position' => 'Administrator',
-            'department_id' => $itDept->id,
-            'role_id' => $roles['Administrator']->id,
-            'status' => 'active',
-        ]);
     }
 
     private function createDefaultDepartments(): void

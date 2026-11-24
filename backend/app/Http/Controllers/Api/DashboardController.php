@@ -18,41 +18,14 @@ class DashboardController extends Controller
 {
     public function index(Request $request)
     {
-        $totalEmployees = Employee::count();
-        $activeUsers = User::where('status', 'active')->where('is_disabled', false)->count();
-        $totalDocuments = Document::count();
-        $totalFiles = Document::count() + \App\Models\DocumentVersion::count();
-        $totalMonthlyBills = Bill::whereMonth('billing_date', now()->month)
-            ->whereYear('billing_date', now()->year)
-            ->sum('amount');
-        $upcomingDueBills = Bill::where('status', '!=', 'paid')
-            ->where('due_date', '>=', now())
-            ->where('due_date', '<=', now()->addDays(30))
-            ->sum('amount');
+        $user = $request->user();
+        $canRead = fn (string $module) => $user->hasPermission($module, 'read');
+        $documents = Document::query()->visibleTo($user);
+        $versions = \App\Models\DocumentVersion::whereHas('document', fn ($query) => $query->visibleTo($user));
+        $totalDocuments = $canRead('documents') ? (clone $documents)->count() : 0;
+        $totalFiles = $totalDocuments + ($canRead('documents') ? (clone $versions)->count() : 0);
 
-        $recentActivities = ActivityLog::with('user')
-            ->orderBy('created_at', 'desc')
-            ->limit(10)
-            ->get();
-
-        $latestFiles = Document::with(['creator', 'folder'])
-            ->orderBy('created_at', 'desc')
-            ->limit(5)
-            ->get();
-
-        $monthlyBillingData = Bill::selectRaw('DATE_FORMAT(billing_date, "%Y-%m") as month, SUM(amount) as total')
-            ->where('billing_date', '>=', now()->subMonths(12))
-            ->groupBy('month')
-            ->orderBy('month')
-            ->get();
-
-        $documentUploadData = Document::selectRaw('DATE_FORMAT(created_at, "%Y-%m") as month, COUNT(*) as count')
-            ->where('created_at', '>=', now()->subMonths(12))
-            ->groupBy('month')
-            ->orderBy('month')
-            ->get();
-
-        $employeeStats = [
+        $employeeStats = $canRead('employees') ? [
             'by_department' => Employee::with('department')
                 ->select('department_id', DB::raw('COUNT(*) as count'))
                 ->groupBy('department_id')
@@ -67,29 +40,46 @@ class DashboardController extends Controller
                 ->groupBy('status')
                 ->get()
                 ->pluck('count', 'status'),
-        ];
+        ] : [];
 
-        // Count ALL uploaded files (documents alone hid book/form/attachment uploads)
-        $storageUsage = (int) Document::sum('file_size')
-            + (int) \App\Models\DocumentVersion::sum('file_size')
-            + (int) \App\Models\BookInventory::sum('file_size')
-            + (int) \App\Models\EmployeeAttachment::sum('file_size')
-            + (int) \App\Models\BillAttachment::sum('file_size');
         $storageBreakdown = [
-            'documents' => (int) Document::sum('file_size'),
-            'document_versions' => (int) \App\Models\DocumentVersion::sum('file_size'),
-            'books' => (int) \App\Models\BookInventory::sum('file_size'),
-            'employee_attachments' => (int) \App\Models\EmployeeAttachment::sum('file_size'),
-            'bill_attachments' => (int) \App\Models\BillAttachment::sum('file_size'),
+            'documents' => $canRead('documents') ? (int) (clone $documents)->sum('file_size') : 0,
+            'document_versions' => $canRead('documents') ? (int) (clone $versions)->sum('file_size') : 0,
+            'books' => $canRead('book_inventories') ? (int) \App\Models\BookInventory::sum('file_size') : 0,
+            'employee_attachments' => $canRead('employees') ? (int) \App\Models\EmployeeAttachment::sum('file_size') : 0,
+            'bill_attachments' => $canRead('bills') ? (int) \App\Models\BillAttachment::sum('file_size') : 0,
         ];
 
-        $userLoginStats = User::selectRaw('DATE(last_login_at) as date, COUNT(*) as count')
-            ->whereNotNull('last_login_at')
-            ->where('last_login_at', '>=', now()->subDays(30))
-            ->groupBy('date')
-            ->orderBy('date')
-            ->get();
+        return $this->success([
+            'total_employees' => $canRead('employees') ? Employee::count() : 0,
+            'active_users' => $canRead('users') ? User::where('status', 'active')->where('is_disabled', false)->count() : 0,
+            'total_documents' => $totalDocuments,
+            'total_files' => $totalFiles,
+            'total_monthly_bills' => $canRead('bills') ? Bill::whereMonth('billing_date', now()->month)
+                ->whereYear('billing_date', now()->year)->sum('amount') : 0,
+            'upcoming_due_bills' => $canRead('bills') ? Bill::where('status', '!=', 'paid')
+                ->whereBetween('due_date', [now(), now()->addDays(30)])->sum('amount') : 0,
+            'recent_activities' => $canRead('activity_logs') ? ActivityLog::with('user:id,name')
+                ->latest()->limit(10)->get() : [],
+            'latest_files' => $canRead('documents') ? (clone $documents)
+                ->select('id', 'name', 'original_name', 'file_size', 'file_type', 'created_at', 'created_by', 'folder_id')
+                ->with(['creator:id,name', 'folder:id,name'])->latest()->limit(5)->get() : [],
+            'monthly_billing_data' => $canRead('bills') ? Bill::selectRaw('DATE_FORMAT(billing_date, "%Y-%m") as month, SUM(amount) as total')
+                ->where('billing_date', '>=', now()->subMonths(12))->groupBy('month')->orderBy('month')->get() : [],
+            'document_upload_data' => $canRead('documents') ? (clone $documents)->selectRaw('DATE_FORMAT(created_at, "%Y-%m") as month, COUNT(*) as count')
+                ->where('created_at', '>=', now()->subMonths(12))->groupBy('month')->orderBy('month')->get() : [],
+            'employee_stats' => $employeeStats,
+            'storage_usage' => array_sum($storageBreakdown),
+            'storage_breakdown' => $storageBreakdown,
+            'user_login_stats' => $canRead('users') ? User::selectRaw('DATE(last_login_at) as date, COUNT(*) as count')
+                ->where('last_login_at', '>=', now()->subDays(30))->groupBy('date')->orderBy('date')->get() : [],
+            'training_stats' => $canRead('training_monitorings') ? $this->trainingStats() : [],
+            'inventory_stats' => $canRead('inventory') ? $this->inventoryStats() : [],
+        ]);
+    }
 
+    private function trainingStats(): array
+    {
         // Training revenue stats
         $trainingTotalCount = TrainingMonitoring::count();
         $trainingTotalRevenue = (float) TrainingMonitoring::sum('training_fee');
@@ -200,7 +190,7 @@ class DashboardController extends Controller
             $monthlyCourseSummary[] = $entry;
         }
 
-        $trainingStats = [
+        return [
             'total_count' => $trainingTotalCount,
             'total_revenue' => $trainingTotalRevenue,
             'total_collected' => $trainingTotalDownpayment,
@@ -216,13 +206,16 @@ class DashboardController extends Controller
             'by_category' => $trainingByCategory,
             'by_remarks' => $trainingByRemarks,
         ];
+    }
 
+    private function inventoryStats(): array
+    {
         // Inventory stats (Supply Chain Management Department)
-        $inventoryTotalItems = InventoryItem::count();
-        $inventoryTotalQuantity = (float) InventoryItem::sum('quantity');
-        $inventoryTotalValue = (float) InventoryItem::sum(DB::raw('quantity * unit_cost'));
-        $inventoryLowStock = InventoryItem::where('status','low_stock')->count();
-        $inventoryOutOfStock = InventoryItem::where('status','out_of_stock')->count();
+        $totals = InventoryItem::query()->selectRaw(
+            'COUNT(*) AS item_count, SUM(quantity) AS quantity_sum, SUM(quantity * unit_cost) AS value_sum, '
+            .'COUNT(CASE WHEN status = ? THEN 1 END) AS low_count, COUNT(CASE WHEN status = ? THEN 1 END) AS out_count',
+            ['low_stock', 'out_of_stock']
+        )->toBase()->first();
         $inventoryByCategory = InventoryItem::leftJoin('inventory_categories','inventory_items.inventory_category_id','=','inventory_categories.id')
             ->selectRaw('COALESCE(inventory_categories.name, "Uncategorized") as category, COUNT(*) as count, SUM(inventory_items.quantity) as total_qty, SUM(inventory_items.quantity * inventory_items.unit_cost) as total_value')
             ->groupBy('category')
@@ -232,34 +225,16 @@ class DashboardController extends Controller
         $inventoryByStatus = InventoryItem::selectRaw('status, COUNT(*) as count, SUM(quantity) as total_qty')->groupBy('status')->get();
         $inventoryLowStockItems = InventoryItem::with('category')->whereIn('status',['low_stock','out_of_stock'])->orderBy('quantity')->limit(5)->get();
 
-        $inventoryStats = [
-            'total_items' => $inventoryTotalItems,
-            'total_quantity' => $inventoryTotalQuantity,
-            'total_value' => $inventoryTotalValue,
-            'low_stock' => $inventoryLowStock,
-            'out_of_stock' => $inventoryOutOfStock,
+        return [
+            'total_items' => (int) $totals->item_count,
+            'total_quantity' => (float) $totals->quantity_sum,
+            'total_value' => (float) $totals->value_sum,
+            'low_stock' => (int) $totals->low_count,
+            'out_of_stock' => (int) $totals->out_count,
             'by_category' => $inventoryByCategory,
             'by_status' => $inventoryByStatus,
             'low_stock_items' => $inventoryLowStockItems,
         ];
 
-        return $this->success([
-            'total_employees' => $totalEmployees,
-            'active_users' => $activeUsers,
-            'total_documents' => $totalDocuments,
-            'total_files' => $totalFiles,
-            'total_monthly_bills' => $totalMonthlyBills,
-            'upcoming_due_bills' => $upcomingDueBills,
-            'recent_activities' => $recentActivities,
-            'latest_files' => $latestFiles,
-            'monthly_billing_data' => $monthlyBillingData,
-            'document_upload_data' => $documentUploadData,
-            'employee_stats' => $employeeStats,
-            'storage_usage' => $storageUsage,
-            'storage_breakdown' => $storageBreakdown,
-            'user_login_stats' => $userLoginStats,
-            'training_stats' => $trainingStats,
-            'inventory_stats' => $inventoryStats,
-        ]);
     }
 }

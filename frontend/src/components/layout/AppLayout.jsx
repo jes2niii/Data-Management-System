@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Outlet, useLocation } from "react-router-dom"
+import * as Dialog from "@radix-ui/react-dialog"
 import Sidebar from "./Sidebar"
 import Header from "./Header"
 
@@ -10,14 +11,9 @@ function isMobileViewport() {
 export default function AppLayout() {
   const location = useLocation()
   const [isMobile, setIsMobile] = useState(() => isMobileViewport())
-  const [sidebarOpen, setSidebarOpen] = useState(() => {
-    // Closed by default on mobile to avoid covering content
-    if (isMobileViewport()) return false
-    const def = localStorage.getItem("sidebarDefault")
-    if (def === "collapsed") return false
-    if (def === "expanded") return true
-    return true
-  })
+  const [desktopOpen, setDesktopOpen] = useState(() => localStorage.getItem("sidebarDefault") !== "collapsed")
+  const [mobileOpen, setMobileOpen] = useState(false)
+  const menuButton = useRef(null)
   const [theme, setTheme] = useState(() => localStorage.getItem("theme") || "system")
   const darkMode = (() => {
     if (theme === "dark") return true
@@ -96,46 +92,50 @@ export default function AppLayout() {
       return "dark"
     })
   }
-  const toggleSidebar = () => setSidebarOpen((prev) => !prev)
-  const closeSidebar = () => setSidebarOpen(false)
+  const toggleSidebar = () => isMobile ? setMobileOpen((prev) => !prev) : setDesktopOpen((prev) => !prev)
 
   // Track viewport so drawer behavior follows resize / rotation
   useEffect(() => {
-    const onResize = () => setIsMobile(isMobileViewport())
-    window.addEventListener("resize", onResize)
-    return () => window.removeEventListener("resize", onResize)
+    const desktop = window.matchMedia("(min-width: 768px)")
+    const onResize = ({ matches }) => {
+      setIsMobile(!matches)
+      setMobileOpen(false)
+    }
+    desktop.addEventListener("change", onResize)
+    return () => desktop.removeEventListener("change", onResize)
   }, [])
 
   // Auto-close drawer on navigation (mobile only)
   useEffect(() => {
-    if (isMobile) setSidebarOpen(false)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setMobileOpen(false)
   }, [location.pathname, location.search])
-
-  // Lock body scroll when mobile drawer is open
-  useEffect(() => {
-    if (isMobile && sidebarOpen) {
-      document.body.style.overflow = "hidden"
-    } else {
-      document.body.style.overflow = ""
-    }
-    return () => { document.body.style.overflow = "" }
-  }, [isMobile, sidebarOpen])
 
   return (
     <div className="flex h-dvh overflow-hidden bg-background">
-      {/* Mobile backdrop */}
-      {isMobile && sidebarOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-[1px] md:hidden"
-          onClick={closeSidebar}
-          aria-hidden="true"
-        />
-      )}
-      <Sidebar isOpen={sidebarOpen} onClose={closeSidebar} isMobile={isMobile} />
+      {!isMobile && <Sidebar isOpen={desktopOpen} onExpand={() => setDesktopOpen(true)} />}
+      {isMobile && <Dialog.Root open={mobileOpen} onOpenChange={setMobileOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-40 bg-black/60" />
+          <Dialog.Content
+            id="mobile-navigation"
+            aria-describedby={undefined}
+            className="fixed inset-y-0 left-0 z-50 h-dvh w-[min(17rem,100%)]"
+            onCloseAutoFocus={(event) => {
+              event.preventDefault()
+              menuButton.current?.focus()
+            }}
+          >
+            <Dialog.Title className="sr-only">Navigation menu</Dialog.Title>
+            <Sidebar isOpen isMobile onClose={() => setMobileOpen(false)} />
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>}
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <Header
           toggleSidebar={toggleSidebar}
+          menuButton={menuButton}
+          sidebarExpanded={isMobile ? mobileOpen : desktopOpen}
+          sidebarControls={isMobile ? (mobileOpen ? "mobile-navigation" : undefined) : "desktop-sidebar"}
           darkMode={darkMode}
           toggleDarkMode={toggleDarkMode}
         />

@@ -55,8 +55,11 @@ class BillCategoryController extends Controller
 
     public function destroy($id)
     {
-        $category = BillCategory::findOrFail($id);
-        $category->delete();
+        \Illuminate\Support\Facades\DB::transaction(function () use ($id) {
+            $category = BillCategory::lockForUpdate()->findOrFail($id);
+            abort_if($category->bills()->withTrashed()->exists(), 409, 'Reassign bills before deleting this category.');
+            $category->delete();
+        });
 
         return $this->success(null, 'Category deleted');
     }

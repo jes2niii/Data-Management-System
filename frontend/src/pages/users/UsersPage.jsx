@@ -337,9 +337,12 @@ export default function UsersPage() {
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label>New Password</Label>
+              <Label htmlFor="new-admin-password">New Password (at least 12 characters)</Label>
               <Input
+                id="new-admin-password"
                 type="password"
+                autoComplete="new-password"
+                maxLength={72}
                 value={resetPassword}
                 onChange={(e) => setResetPassword(e.target.value)}
                 placeholder="Enter new password"
@@ -351,7 +354,7 @@ export default function UsersPage() {
               Cancel
             </Button>
             <Button
-              disabled={resetPasswordMutation.isPending || !resetPassword}
+              disabled={resetPasswordMutation.isPending || resetPassword.length < 12}
               onClick={() =>
                 resetPasswordMutation.mutate({
                   id: resetPasswordUser?.id,

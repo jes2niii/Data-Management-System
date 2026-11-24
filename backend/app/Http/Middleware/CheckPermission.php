@@ -16,25 +16,8 @@ class CheckPermission
             return response()->json(['message' => 'Unauthenticated.'], 401);
         }
 
-        $role = $user->role;
-
-        if (!$role) {
-            return response()->json(['message' => 'Forbidden. No role assigned.'], 403);
-        }
-
-        if ($role->name === 'Super Admin') {
-            return $next($request);
-        }
-
-        [$module, $action] = str_contains($permission, '.') ? explode('.', $permission, 2) : [$permission, null];
-
-        $query = $role->permissions()->where('module', $module);
-
-        if ($action) {
-            $query->where('action', $action);
-        }
-
-        if ($query->exists()) {
+        [$module, $action] = explode('.', $permission, 2);
+        if ($user->hasPermission($module, $action)) {
             return $next($request);
         }
 

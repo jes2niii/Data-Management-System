@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -28,6 +29,27 @@ class Document extends Model
         'file_size' => 'integer',
         'version' => 'integer',
     ];
+
+    public function scopeVisibleTo(Builder $query, User $user): Builder
+    {
+        if (!$user->hasPermission('documents', 'read')) {
+            return $query->whereRaw('1 = 0');
+        }
+        if ($user->isSuperAdmin()) {
+            return $query;
+        }
+
+        return $query->where(function (Builder $visible) use ($user) {
+            $visible->where('documents.created_by', $user->id)
+                ->orWhereDoesntHave('access')
+                ->orWhereHas('access', function (Builder $access) use ($user) {
+                    $access->where(fn (Builder $grant) => $grant->where('access_type', 'user')->where('access_id', $user->id));
+                    if ($user->department_id !== null) {
+                        $access->orWhere(fn (Builder $grant) => $grant->where('access_type', 'department')->where('access_id', $user->department_id));
+                    }
+                });
+        });
+    }
 
     public function folder()
     {

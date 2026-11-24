@@ -32,6 +32,18 @@ return [
 
     'connections' => [
 
+        'dms_audit' => [
+            'driver' => 'mysql',
+            'host' => env('DMS_AUDIT_DB_HOST'),
+            'port' => env('DMS_AUDIT_DB_PORT', 3306),
+            'database' => env('DMS_AUDIT_DB_DATABASE'),
+            'username' => env('DMS_AUDIT_DB_USERNAME'),
+            'password' => env('DMS_AUDIT_DB_PASSWORD'),
+            'charset' => 'utf8mb4',
+            'prefix' => '',
+            'strict' => true,
+        ],
+
         'sqlite' => [
             'driver' => 'sqlite',
             'url' => env('DB_URL'),

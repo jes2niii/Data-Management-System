@@ -1,93 +1,62 @@
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle,
-} from "@/components/ui/dialog"
+import { useEffect, useState } from "react"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { Download, File, Image as ImageIcon, FileText } from "lucide-react"
-
-const imageExts = ["jpg", "jpeg", "png", "gif", "webp", "svg", "bmp"]
-const pdfExt = "pdf"
-const textExts = ["txt", "md", "csv", "json", "xml", "log"]
-
-function getFileType(filename) {
-  const ext = filename?.split(".").pop()?.toLowerCase()
-  if (imageExts.includes(ext)) return "image"
-  if (ext === pdfExt) return "pdf"
-  if (textExts.includes(ext)) return "text"
-  return "unknown"
-}
+import { Download } from "lucide-react"
+import { toast } from "sonner"
+import api, { downloadDocument } from "@/lib/api"
 
 export default function FilePreviewDialog({ open, onClose, file }) {
+  const [preview, setPreview] = useState(null)
+  const fileId = file?.id
+
+  useEffect(() => {
+    if (!open || !fileId) return
+
+    const controller = new AbortController()
+    let url
+    setPreview(null)
+    api.get(`/files/${fileId}/preview`, { responseType: "blob", signal: controller.signal })
+      .then(({ data }) => {
+        if (controller.signal.aborted) return
+        url = URL.createObjectURL(data)
+        setPreview({ url, type: data.type })
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) {
+          setPreview({ error: error.response?.status === 415 ? "Preview is not available for this file type." : "Could not load the preview." })
+        }
+      })
+
+    return () => {
+      controller.abort()
+      if (url) URL.revokeObjectURL(url)
+    }
+  }, [open, fileId])
+
   if (!file) return null
 
-  const fileType = getFileType(file.name)
-  const fileUrl = file.url || file.download_url || ""
-
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
+    <Dialog open={open} onOpenChange={(value) => { if (!value) onClose() }}>
       <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
-        <DialogHeader className="flex flex-row items-center justify-between">
-          <DialogTitle className="whitespace-normal break-all">{file.name}</DialogTitle>
-          {fileUrl && (
-            <Button variant="outline" size="sm" asChild>
-              <a href={fileUrl} download={file.name}>
-                <Download className="mr-2 h-4 w-4" /> Download
-              </a>
-            </Button>
-          )}
+        <DialogHeader>
+          <DialogTitle className="break-all">{file.name}</DialogTitle>
+          <DialogDescription>Preview or download this document.</DialogDescription>
         </DialogHeader>
-        <div className="flex-1 overflow-auto flex items-center justify-center min-h-[400px] bg-muted/30 rounded-md">
-          {fileType === "image" && fileUrl ? (
-            <img
-              src={fileUrl}
-              alt={file.name}
-              className="max-w-full max-h-[70vh] object-contain"
-            />
-          ) : fileType === "pdf" && fileUrl ? (
-            <iframe
-              src={fileUrl}
-              className="w-full h-[70vh]"
-              title={file.name}
-            />
-          ) : fileType === "text" && fileUrl ? (
-            <iframe
-              src={fileUrl}
-              className="w-full h-[70vh] bg-white"
-              title={file.name}
-            />
+        <Button variant="outline" size="sm" className="self-start" onClick={() => {
+          downloadDocument(file).catch(() => toast.error("Could not download this file."))
+        }}>
+          <Download className="mr-2 h-4 w-4" /> Download
+        </Button>
+        <div className="overflow-auto rounded-md bg-muted/30">
+          {preview?.url && preview.type.startsWith("image/") ? (
+            <img src={preview.url} alt={file.name} className="mx-auto max-h-[65vh] object-contain" />
+          ) : preview?.url ? (
+            <iframe sandbox="" src={preview.url} className="w-full h-[65vh]" title={file.name} />
           ) : (
-            <div className="text-center">
-              {fileType === "image" ? (
-                <ImageIcon className="h-16 w-16 mx-auto text-muted-foreground mb-2" />
-              ) : fileType === "pdf" ? (
-                <FileText className="h-16 w-16 mx-auto text-muted-foreground mb-2" />
-              ) : (
-                <File className="h-16 w-16 mx-auto text-muted-foreground mb-2" />
-              )}
-              <p className="text-muted-foreground">Preview not available</p>
-              {fileUrl && (
-                <Button variant="outline" className="mt-4" asChild>
-                  <a href={fileUrl} download={file.name}>
-                    <Download className="mr-2 h-4 w-4" /> Download instead
-                  </a>
-                </Button>
-              )}
-            </div>
+            <p role="status" className="p-8 text-center text-muted-foreground">{preview?.error || "Loading preview…"}</p>
           )}
-        </div>
-        <div className="flex gap-4 text-sm text-muted-foreground pt-2">
-          {file.size && <span>Size: {formatFileSize(file.size)}</span>}
-          {file.type && <span>Type: {file.type}</span>}
-          {file.updated_at && <span>Modified: {file.updated_at}</span>}
         </div>
       </DialogContent>
     </Dialog>
   )
-}
-
-function formatFileSize(bytes) {
-  if (!bytes) return "Unknown"
-  const num = Number(bytes)
-  if (num < 1024) return num + " B"
-  if (num < 1024 * 1024) return (num / 1024).toFixed(1) + " KB"
-  return (num / (1024 * 1024)).toFixed(1) + " MB"
 }

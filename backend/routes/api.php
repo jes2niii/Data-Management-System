@@ -33,12 +33,20 @@ use App\Http\Controllers\Api\SettingsController;
 use App\Http\Controllers\Api\UserController;
 use Illuminate\Support\Facades\Route;
 
-Route::post('/login', [AuthController::class, 'login']);
+Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:dms-login');
 Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth:sanctum');
 // Public branding (company name + logo) for the login page / favicon.
 Route::get('/branding', [SettingsController::class, 'branding']);
 
-Route::middleware('auth:sanctum')->group(function () {
+$permissionedResource = function (string $uri, string $controller, string $module, array $except = []) {
+    return Route::apiResource($uri, $controller)->except($except)
+        ->middlewareFor(['index', 'show'], "permission:{$module}.read")
+        ->middlewareFor('store', "permission:{$module}.create")
+        ->middlewareFor('update', "permission:{$module}.update")
+        ->middlewareFor('destroy', "permission:{$module}.delete");
+};
+
+Route::middleware(['auth:sanctum', 'account.enabled'])->group(function () use ($permissionedResource) {
     Route::get('/me', [AuthController::class, 'me']);
     Route::put('/profile', [AuthController::class, 'updateProfile']);
 
@@ -84,17 +92,17 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/download', [DocumentController::class, 'download']);
         Route::get('/preview', [DocumentController::class, 'preview']);
         Route::get('/versions', [DocumentController::class, 'versions']);
-        Route::post('/version', [DocumentController::class, 'newVersion']);
+        Route::post('/version', [DocumentController::class, 'newVersion'])->middleware('permission:documents.update');
         Route::get('/comments', [DocumentController::class, 'comments']);
-        Route::post('/comments', [DocumentController::class, 'addComment']);
-        Route::post('/restore', [DocumentController::class, 'restore']);
-        Route::post('/favorite', [DocumentController::class, 'favorite']);
-        Route::post('/lock', [DocumentController::class, 'lock']);
-        Route::post('/share', [DocumentController::class, 'share']);
-        Route::post('/approve', [DocumentController::class, 'approve']);
-        Route::post('/reject', [DocumentController::class, 'reject']);
-        Route::post('/archive', [DocumentController::class, 'archive']);
-        Route::post('/move', [DocumentController::class, 'move']);
+        Route::post('/comments', [DocumentController::class, 'addComment'])->middleware('permission:documents.update');
+        Route::post('/restore', [DocumentController::class, 'restore'])->middleware('permission:documents.delete');
+        Route::post('/favorite', [DocumentController::class, 'favorite'])->middleware('permission:documents.update');
+        Route::post('/lock', [DocumentController::class, 'lock'])->middleware('permission:documents.update');
+        Route::post('/share', [DocumentController::class, 'share'])->middleware('permission:documents.update');
+        Route::post('/approve', [DocumentController::class, 'approve'])->middleware('permission:documents.approve');
+        Route::post('/reject', [DocumentController::class, 'reject'])->middleware('permission:documents.approve');
+        Route::post('/archive', [DocumentController::class, 'archive'])->middleware('permission:documents.update');
+        Route::post('/move', [DocumentController::class, 'move'])->middleware('permission:documents.update');
     };
 
     Route::prefix('files')->middleware('permission:documents.read')->group(function () use ($fileRoutes) {
@@ -130,7 +138,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/forms/{form}', [FormController::class, 'show'])->middleware('permission:forms.read');
     Route::put('/forms/{form}', [FormController::class, 'update'])->middleware('permission:forms.update');
     Route::delete('/forms/{form}', [FormController::class, 'destroy'])->middleware('permission:forms.delete');
-    Route::apiResource('/form-categories', FormCategoryController::class);
+    $permissionedResource('form-categories', FormCategoryController::class, 'forms', ['show']);
 
     // Billing
     Route::get('/billing/analytics', [BillController::class, 'analytics'])->middleware('permission:bills.read');
@@ -141,7 +149,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/bills/{bill}', [BillController::class, 'show'])->middleware('permission:bills.read');
     Route::put('/bills/{bill}', [BillController::class, 'update'])->middleware('permission:bills.update');
     Route::delete('/bills/{bill}', [BillController::class, 'destroy'])->middleware('permission:bills.delete');
-    Route::apiResource('/bill-categories', BillCategoryController::class);
+    Route::get('/bill-categories', [BillCategoryController::class, 'index'])->middleware('permission:bills.read');
+    $permissionedResource('bill-categories', BillCategoryController::class, 'bill_categories', ['index', 'show']);
 
     // Subscriptions (Billing - Subscription Monitoring)
     Route::get('/subscriptions/stats', [SubscriptionController::class, 'stats'])->middleware('permission:bills.read');
@@ -156,9 +165,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/subscriptions/{subscription}', [SubscriptionController::class, 'show'])->middleware('permission:bills.read');
     Route::put('/subscriptions/{subscription}', [SubscriptionController::class, 'update'])->middleware('permission:bills.update');
     Route::delete('/subscriptions/{subscription}', [SubscriptionController::class, 'destroy'])->middleware('permission:bills.delete');
-    Route::apiResource('/document-categories', DocumentCategoryController::class);
-    Route::apiResource('/folder-categories', FolderCategoryController::class);
-    Route::apiResource('/employee-attachment-categories', EmployeeAttachmentCategoryController::class);
+    $permissionedResource('document-categories', DocumentCategoryController::class, 'documents', ['show']);
+    $permissionedResource('folder-categories', FolderCategoryController::class, 'folders', ['show']);
+    $permissionedResource('employee-attachment-categories', EmployeeAttachmentCategoryController::class, 'employees', ['show']);
 
     // Activity Logs
     Route::get('/activity-logs', [ActivityLogController::class, 'index'])->middleware('permission:activity_logs.read');
@@ -167,10 +176,11 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Reports
     Route::get('/reports/export/{type}/{format}', [ReportController::class, 'export'])->middleware('permission:reports.export');
-    Route::get('/reports/employees', [ReportController::class, 'employeeReport'])->middleware('permission:reports.read');
-    Route::get('/reports/documents', [ReportController::class, 'documentReport'])->middleware('permission:reports.read');
-    Route::get('/reports/bills', [ReportController::class, 'billReport'])->middleware('permission:reports.read');
-    Route::get('/reports/activity', [ReportController::class, 'activityReport'])->middleware('permission:reports.read');
+    Route::get('/reports/employees', [ReportController::class, 'employeeReport'])->middleware(['permission:reports.read', 'permission:employees.read']);
+    Route::get('/reports/employees/departments', [ReportController::class, 'departments'])->middleware(['permission:reports.read', 'permission:employees.read']);
+    Route::get('/reports/documents', [ReportController::class, 'documentReport'])->middleware(['permission:reports.read', 'permission:documents.read']);
+    Route::get('/reports/bills', [ReportController::class, 'billReport'])->middleware(['permission:reports.read', 'permission:bills.read']);
+    Route::get('/reports/activity', [ReportController::class, 'activityReport'])->middleware(['permission:reports.read', 'permission:activity_logs.read']);
 
     // Settings
     Route::get('/settings', [SettingsController::class, 'index'])->middleware('permission:settings.read');
@@ -187,79 +197,90 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/surveys/{survey}', [SurveyController::class, 'show'])->middleware('permission:items.read');
     Route::put('/surveys/{survey}', [SurveyController::class, 'update'])->middleware('permission:items.update');
     Route::delete('/surveys/{survey}', [SurveyController::class, 'destroy'])->middleware('permission:items.delete');
-    Route::post('/surveys/{id}/responses', [SurveyController::class, 'submitResponse']);
-    Route::get('/surveys/{id}/responses', [SurveyController::class, 'responses']);
-    Route::get('/surveys/{id}/analysis', [SurveyController::class, 'analysis']);
+    Route::post('/surveys/{id}/responses', [SurveyController::class, 'submitResponse'])->middleware('permission:items.read');
+    Route::get('/surveys/{id}/responses', [SurveyController::class, 'responses'])->middleware('permission:items.update');
+    Route::get('/surveys/{id}/analysis', [SurveyController::class, 'analysis'])->middleware('permission:items.update');
 
     // Attendance
-    Route::get('/attendances', [AttendanceController::class, 'index']);
-    Route::post('/attendances', [AttendanceController::class, 'store']);
-    Route::put('/attendances/{attendance}', [AttendanceController::class, 'update']);
-    Route::delete('/attendances/{attendance}', [AttendanceController::class, 'destroy']);
-    Route::get('/attendances/summary', [AttendanceController::class, 'summary']);
-    Route::get('/attendance-statuses', [AttendanceController::class, 'getStatuses']);
+    Route::get('/attendances', [AttendanceController::class, 'index'])->middleware('permission:employees.read');
+    Route::post('/attendances', [AttendanceController::class, 'store'])->middleware(['permission:employees.create', 'permission:employees.update']);
+    Route::put('/attendances/{attendance}', [AttendanceController::class, 'update'])->middleware('permission:employees.update');
+    Route::delete('/attendances/{attendance}', [AttendanceController::class, 'destroy'])->middleware('permission:employees.delete');
+    Route::get('/attendances/summary', [AttendanceController::class, 'summary'])->middleware('permission:employees.read');
+    Route::get('/attendance-statuses', [AttendanceController::class, 'getStatuses'])->middleware('permission:employees.read');
 
     // Test Item Analysis (U-L Method)
-    Route::get('/test-exams', [TestAnalysisController::class, 'index']);
-    Route::post('/test-exams', [TestAnalysisController::class, 'store']);
-    Route::get('/test-exams/{test_exam}', [TestAnalysisController::class, 'show']);
-    Route::put('/test-exams/{test_exam}', [TestAnalysisController::class, 'update']);
-    Route::delete('/test-exams/{test_exam}', [TestAnalysisController::class, 'destroy']);
-    Route::post('/test-exams/{id}/students', [TestAnalysisController::class, 'addStudents']);
-    Route::post('/test-exams/{id}/analyze', [TestAnalysisController::class, 'runAnalysis']);
-    Route::get('/test-exams/{id}/analysis', [TestAnalysisController::class, 'getAnalysis']);
+    Route::get('/test-exams', [TestAnalysisController::class, 'index'])->middleware('permission:items.read');
+    Route::post('/test-exams', [TestAnalysisController::class, 'store'])->middleware('permission:items.create');
+    Route::get('/test-exams/{test_exam}', [TestAnalysisController::class, 'show'])->middleware('permission:items.read');
+    Route::put('/test-exams/{test_exam}', [TestAnalysisController::class, 'update'])->middleware('permission:items.update');
+    Route::delete('/test-exams/{test_exam}', [TestAnalysisController::class, 'destroy'])->middleware('permission:items.delete');
+    Route::post('/test-exams/{id}/students', [TestAnalysisController::class, 'addStudents'])->middleware('permission:items.update');
+    Route::post('/test-exams/{id}/analyze', [TestAnalysisController::class, 'runAnalysis'])->middleware('permission:items.update');
+    Route::get('/test-exams/{id}/analysis', [TestAnalysisController::class, 'getAnalysis'])->middleware('permission:items.read');
 
     // Training Monitoring
-    Route::get('/training-monitorings/stats', [TrainingMonitoringController::class, 'stats']);
-    Route::get('/training-monitorings/export/{format}', [TrainingMonitoringController::class, 'export']);
-    Route::get('/training-monitorings', [TrainingMonitoringController::class, 'index']);
-    Route::post('/training-monitorings', [TrainingMonitoringController::class, 'store']);
-    Route::get('/training-monitorings/{id}', [TrainingMonitoringController::class, 'show']);
-    Route::put('/training-monitorings/{id}', [TrainingMonitoringController::class, 'update']);
-    Route::delete('/training-monitorings/{id}', [TrainingMonitoringController::class, 'destroy']);
+    Route::get('/training-monitorings/stats', [TrainingMonitoringController::class, 'stats'])->middleware('permission:training_monitorings.read');
+    Route::get('/training-monitorings/export/{format}', [TrainingMonitoringController::class, 'export'])->middleware('permission:training_monitorings.export');
+    Route::get('/training-monitorings', [TrainingMonitoringController::class, 'index'])->middleware('permission:training_monitorings.read');
+    Route::post('/training-monitorings', [TrainingMonitoringController::class, 'store'])->middleware('permission:training_monitorings.create');
+    Route::get('/training-monitorings/{id}', [TrainingMonitoringController::class, 'show'])->middleware('permission:training_monitorings.read');
+    Route::put('/training-monitorings/{id}', [TrainingMonitoringController::class, 'update'])->middleware('permission:training_monitorings.update');
+    Route::delete('/training-monitorings/{id}', [TrainingMonitoringController::class, 'destroy'])->middleware('permission:training_monitorings.delete');
 
     // Trainings Catalog (for Settings)
-    Route::get('/trainings/stats', [TrainingController::class, 'stats']);
-    Route::get('/trainings/price-logs', [TrainingController::class, 'allPriceLogs']);
-    Route::get('/trainings/{id}/price-history', [TrainingController::class, 'priceHistory']);
-    Route::apiResource('trainings', TrainingController::class);
+    Route::get('/trainings/stats', [TrainingController::class, 'stats'])->middleware('permission:trainings.read');
+    Route::get('/trainings/price-logs', [TrainingController::class, 'allPriceLogs'])->middleware('permission:training_price_logs.read');
+    Route::get('/trainings/{id}/price-history', [TrainingController::class, 'priceHistory'])->middleware('permission:training_price_logs.read');
+    $permissionedResource('trainings', TrainingController::class, 'trainings');
 
     // Training Details
-    Route::get('/training-details/{id}/price-history', [TrainingDetailController::class, 'priceHistory']);
-    Route::apiResource('training-details', TrainingDetailController::class);
+    Route::get('/training-details/{id}/price-history', [TrainingDetailController::class, 'priceHistory'])->middleware('permission:training_price_logs.read');
+    $permissionedResource('training-details', TrainingDetailController::class, 'training_details');
 
     // Training Price Logs (global)
-    Route::get('/training-price-logs', [TrainingController::class, 'allPriceLogs']);
+    Route::get('/training-price-logs', [TrainingController::class, 'allPriceLogs'])->middleware('permission:training_price_logs.read');
 
     // Inventory Monitoring (Supply Chain Management Department) - 5 Types
     Route::get('/inventory/stats', [InventoryItemController::class, 'stats'])->middleware('permission:inventory.read');
     Route::post('/inventory/{id}/adjust', [InventoryItemController::class, 'adjustStock'])->middleware('permission:inventory.update');
     Route::get('/inventory/{id}/transactions', [InventoryItemController::class, 'transactions'])->middleware('permission:inventory.read');
     Route::get('/inventory/{id}/batches', [InventoryItemController::class, 'batches'])->middleware('permission:inventory.read');
-    Route::apiResource('inventory', InventoryItemController::class)->middleware('permission:inventory.read');
-    Route::post('/inventory', [InventoryItemController::class, 'store'])->middleware('permission:inventory.create')->withoutMiddleware('permission:inventory.read');
-    Route::put('/inventory/{inventory_item}', [InventoryItemController::class, 'update'])->middleware('permission:inventory.update')->withoutMiddleware('permission:inventory.read');
-    Route::delete('/inventory/{inventory_item}', [InventoryItemController::class, 'destroy'])->middleware('permission:inventory.delete')->withoutMiddleware('permission:inventory.read');
-    Route::apiResource('inventory-categories', InventoryCategoryController::class)->middleware('permission:inventory_categories.read');
-    Route::apiResource('inventory-suppliers', InventorySupplierController::class)->middleware('permission:inventory_suppliers.read');
+    Route::apiResource('inventory', InventoryItemController::class)
+        ->parameters(['inventory' => 'inventory_item'])
+        ->middlewareFor(['index', 'show'], 'permission:inventory.read')
+        ->middlewareFor('store', 'permission:inventory.create')
+        ->middlewareFor('update', 'permission:inventory.update')
+        ->middlewareFor('destroy', 'permission:inventory.delete');
+    Route::apiResource('inventory-categories', InventoryCategoryController::class)
+        ->except('show')
+        ->middlewareFor('index', 'permission:inventory_categories.read')
+        ->middlewareFor('store', 'permission:inventory_categories.create')
+        ->middlewareFor('update', 'permission:inventory_categories.update')
+        ->middlewareFor('destroy', 'permission:inventory_categories.delete');
+    Route::apiResource('inventory-suppliers', InventorySupplierController::class)
+        ->middlewareFor(['index', 'show'], 'permission:inventory_suppliers.read')
+        ->middlewareFor('store', 'permission:inventory_suppliers.create')
+        ->middlewareFor('update', 'permission:inventory_suppliers.update')
+        ->middlewareFor('destroy', 'permission:inventory_suppliers.delete');
 
     // Supply Chain 5-Type Inventory
-    Route::apiResource('supply-inventories', \App\Http\Controllers\Api\SupplyInventoryController::class);
-    Route::apiResource('uniform-inventories', \App\Http\Controllers\Api\UniformInventoryController::class);
-    Route::apiResource('certificate-inventories', \App\Http\Controllers\Api\CertificateInventoryController::class);
-    Route::apiResource('individual-inventories', \App\Http\Controllers\Api\IndividualInventoryController::class);
-    Route::apiResource('property-summaries', \App\Http\Controllers\Api\PropertySummaryController::class);
-    Route::get('/supply-inventories-stats', [\App\Http\Controllers\Api\SupplyInventoryController::class, 'stats']);
-    Route::get('/uniform-inventories-stats', [\App\Http\Controllers\Api\UniformInventoryController::class, 'stats']);
-    Route::get('/certificate-inventories-stats', [\App\Http\Controllers\Api\CertificateInventoryController::class, 'stats']);
+    $permissionedResource('supply-inventories', \App\Http\Controllers\Api\SupplyInventoryController::class, 'inventory');
+    $permissionedResource('uniform-inventories', \App\Http\Controllers\Api\UniformInventoryController::class, 'inventory');
+    $permissionedResource('certificate-inventories', \App\Http\Controllers\Api\CertificateInventoryController::class, 'inventory');
+    $permissionedResource('individual-inventories', \App\Http\Controllers\Api\IndividualInventoryController::class, 'inventory');
+    $permissionedResource('property-summaries', \App\Http\Controllers\Api\PropertySummaryController::class, 'inventory');
+    Route::get('/supply-inventories-stats', [\App\Http\Controllers\Api\SupplyInventoryController::class, 'stats'])->middleware('permission:inventory.read');
+    Route::get('/uniform-inventories-stats', [\App\Http\Controllers\Api\UniformInventoryController::class, 'stats'])->middleware('permission:inventory.read');
+    Route::get('/certificate-inventories-stats', [\App\Http\Controllers\Api\CertificateInventoryController::class, 'stats'])->middleware('permission:inventory.read');
 
     // Book Inventory (Records Department)
-    Route::get('/book-inventories/stats', [\App\Http\Controllers\Api\BookInventoryController::class, 'stats']);
-    Route::get('/book-inventories/{id}/download', [\App\Http\Controllers\Api\BookInventoryController::class, 'download']);
-    Route::get('/book-inventories/{id}/preview', [\App\Http\Controllers\Api\BookInventoryController::class, 'preview']);
-    Route::get('/book-inventories/{id}/view', [\App\Http\Controllers\Api\BookInventoryController::class, 'view']);
-    Route::apiResource('book-inventories', \App\Http\Controllers\Api\BookInventoryController::class);
-    Route::apiResource('book-categories', \App\Http\Controllers\Api\BookCategoryController::class);
+    Route::get('/book-inventories/stats', [\App\Http\Controllers\Api\BookInventoryController::class, 'stats'])->middleware('permission:book_inventories.read');
+    Route::get('/book-inventories/{id}/download', [\App\Http\Controllers\Api\BookInventoryController::class, 'download'])->middleware('permission:book_inventories.read');
+    Route::get('/book-inventories/{id}/preview', [\App\Http\Controllers\Api\BookInventoryController::class, 'preview'])->middleware('permission:book_inventories.read');
+    Route::get('/book-inventories/{id}/view', [\App\Http\Controllers\Api\BookInventoryController::class, 'view'])->middleware('permission:book_inventories.read');
+    $permissionedResource('book-inventories', \App\Http\Controllers\Api\BookInventoryController::class, 'book_inventories');
+    $permissionedResource('book-categories', \App\Http\Controllers\Api\BookCategoryController::class, 'book_categories');
 
     // Search
     Route::get('/search', [SearchController::class, 'search']);

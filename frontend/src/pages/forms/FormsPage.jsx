@@ -1,7 +1,9 @@
 import { useState, useRef } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
-import api from "@/lib/api"
+import api, { downloadAttachment } from "@/lib/api"
+import { useAuth } from "@/contexts/AuthContext"
+import { hasPermission } from "@/lib/access"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -16,7 +18,7 @@ import {
 } from "@/components/ui/dialog"
 import { Switch } from "@/components/ui/switch"
 import {
-  Search, Upload, Download, FileText, FileSpreadsheet, File, Image as ImageIcon,
+  Search, Download, FileText, FileSpreadsheet, File, Image as ImageIcon,
   Plus,
 } from "lucide-react"
 
@@ -38,6 +40,9 @@ export default function FormsPage() {
   const queryClient = useQueryClient()
   const [search, setSearch] = useState("")
   const [categoryFilter, setCategoryFilter] = useState("all")
+  const [page, setPage] = useState(1)
+  const { user } = useAuth()
+  const canUpload = hasPermission(user, "forms.create")
   const [uploadOpen, setUploadOpen] = useState(false)
   const [formName, setFormName] = useState("")
   const [formCategoryId, setFormCategoryId] = useState("")
@@ -46,14 +51,14 @@ export default function FormsPage() {
   const fileRef = useRef(null)
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["forms", search, categoryFilter],
+    queryKey: ["forms", search, categoryFilter, page],
     queryFn: () =>
       api.get("/forms", {
-        params: { search, category: categoryFilter !== "all" ? categoryFilter : undefined },
+        params: { search, page, category: categoryFilter !== "all" ? categoryFilter : undefined },
       }).then((r) => r.data),
   })
 
-  const { data: categoriesData } = useQuery({
+  const { data: categoriesData, isError: categoriesError } = useQuery({
     queryKey: ["form-categories"],
     queryFn: () => api.get("/form-categories").then((r) => r.data),
   })
@@ -67,6 +72,7 @@ export default function FormsPage() {
       }),
     onSuccess: () => {
       toast.success("Form uploaded")
+      setPage(1)
       queryClient.invalidateQueries({ queryKey: ["forms"] })
       setUploadOpen(false)
       setFormName("")
@@ -77,16 +83,21 @@ export default function FormsPage() {
     onError: (err) => toast.error(err.response?.data?.message || "Upload failed"),
   })
 
-  const incrementDownloadMutation = useMutation({
-    mutationFn: (id) => api.post(`/forms/${id}/download`),
+  const downloadMutation = useMutation({
+    mutationFn: (form) => downloadAttachment(`/forms/${form.id}/download`, form.name),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["forms"] }),
+    onError: (error) => toast.error(error.response?.status === 404 ? "This form file is no longer available." : "Could not download the form."),
   })
 
   const forms = data?.data?.data || []
+  const totalPages = data?.data?.last_page || 1
 
   const handleUploadSubmit = () => {
     const file = fileRef.current?.files?.[0]
-    if (!file || !formName.trim()) return
+    if (!file || !formName.trim()) {
+      toast.error("Enter a name and choose a file.")
+      return
+    }
     const formData = new FormData()
     formData.append("file", file)
     formData.append("name", formName)
@@ -98,39 +109,38 @@ export default function FormsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Forms Repository</h1>
           <p className="text-muted-foreground">Download and manage organizational forms</p>
         </div>
-        <Button onClick={() => setUploadOpen(true)}>
+        {canUpload && <Button onClick={() => setUploadOpen(true)}>
           <Plus className="mr-2 h-4 w-4" /> Upload Form
-        </Button>
+        </Button>}
       </div>
 
-      <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center gap-4">
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="Search forms..."
+            aria-label="Search forms"
             className="pl-9"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => { setSearch(e.target.value); setPage(1) }}
           />
         </div>
-        <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-          <SelectTrigger className="w-[180px]">
+        <Select value={categoryFilter} onValueChange={(value) => { setCategoryFilter(value); setPage(1) }}>
+          <SelectTrigger className="w-[180px]" aria-label="Filter by category">
             <SelectValue placeholder="All Categories" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Categories</SelectItem>
-            <SelectItem value="documents">Documents</SelectItem>
-            <SelectItem value="spreadsheets">Spreadsheets</SelectItem>
-            <SelectItem value="forms">Forms</SelectItem>
-            <SelectItem value="images">Images</SelectItem>
+            {categories.map((category) => <SelectItem key={category.id} value={String(category.id)}>{category.name}</SelectItem>)}
           </SelectContent>
         </Select>
       </div>
+      {categoriesError && <p role="alert" className="text-sm text-destructive">Categories could not be loaded.</p>}
 
       {isLoading ? (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -148,8 +158,9 @@ export default function FormsPage() {
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {forms.map((form) => {
-            const Icon = categoryIcons[form.category] || File
-            const badgeClass = categoryColors[form.category] || ""
+            const categoryName = form.category?.name
+            const Icon = categoryIcons[categoryName?.toLowerCase()] || File
+            const badgeClass = categoryColors[categoryName?.toLowerCase()] || ""
             return (
               <Card key={form.id} className="hover:shadow-md transition-shadow">
                 <CardHeader>
@@ -160,9 +171,9 @@ export default function FormsPage() {
                       </div>
                       <div>
                           <CardTitle className="text-base">{form.name}</CardTitle>
-                        {form.category && (
+                         {categoryName && (
                           <Badge className={`mt-1 ${badgeClass}`} variant="outline">
-                            {form.category?.name || form.category}
+                             {categoryName}
                           </Badge>
                         )}
                       </div>
@@ -182,12 +193,8 @@ export default function FormsPage() {
                     </span>
                     <Button
                       size="sm"
-                      onClick={() => {
-                        incrementDownloadMutation.mutate(form.id)
-                        if (form.url || form.download_url) {
-                          window.open(form.url || form.download_url, "_blank")
-                        }
-                      }}
+                       disabled={downloadMutation.isPending}
+                       onClick={() => downloadMutation.mutate(form)}
                     >
                       <Download className="mr-1 h-4 w-4" /> Download
                     </Button>
@@ -197,6 +204,13 @@ export default function FormsPage() {
             )
           })}
         </div>
+      )}
+      {!isError && (totalPages > 1 || page > 1) && (
+        <nav aria-label="Forms pagination" className="flex flex-wrap items-center justify-end gap-3">
+          <Button variant="outline" size="sm" disabled={page <= 1 || isLoading} onClick={() => setPage((current) => current - 1)}>Previous</Button>
+          <span className="text-sm text-muted-foreground" aria-live="polite">{isLoading ? "Loading…" : `Page ${page} of ${totalPages}`}</span>
+          <Button variant="outline" size="sm" disabled={page >= totalPages || isLoading} onClick={() => setPage((current) => current + 1)}>Next</Button>
+        </nav>
       )}
 
       <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
@@ -216,9 +230,9 @@ export default function FormsPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label>Category</Label>
+              <Label htmlFor="formCategory">Category</Label>
               <Select value={formCategoryId} onValueChange={setFormCategoryId}>
-                <SelectTrigger>
+                <SelectTrigger id="formCategory">
                   <SelectValue placeholder="Select category" />
                 </SelectTrigger>
                 <SelectContent>
@@ -238,8 +252,8 @@ export default function FormsPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label>File</Label>
-              <Input ref={fileRef} type="file" />
+              <Label htmlFor="formFile">File</Label>
+              <Input id="formFile" ref={fileRef} type="file" />
             </div>
             <div className="flex items-center justify-between">
               <Label htmlFor="formActive">Active</Label>

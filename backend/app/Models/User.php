@@ -52,11 +52,25 @@ class User extends Authenticatable
         return $this->role ? $this->role->permissions() : collect();
     }
 
-    public function hasPermission($module, $action)
+    public function isSuperAdmin(): bool
     {
-        return $this->role?->permissions()
-            ->where('module', $module)
-            ->where('action', $action)
-            ->exists() ?? false;
+        return $this->role?->name === Role::SUPER_ADMIN;
+    }
+
+    public function hasPermission(string $module, string $action): bool
+    {
+        if ($this->isSuperAdmin()) {
+            return true;
+        }
+
+        if ($this->role === null) {
+            return false;
+        }
+
+        $this->role->loadMissing('permissions');
+
+        return $this->role->permissions->contains(
+            fn (Permission $permission) => $permission->module === $module && $permission->action === $action
+        );
     }
 }

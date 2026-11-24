@@ -1,7 +1,11 @@
 import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { format } from "date-fns"
-import api from "@/lib/api"
+import { toast } from "sonner"
+import api, { downloadAttachment } from "@/lib/api"
+import { useAuth } from "@/contexts/AuthContext"
+import { useCurrency } from "@/hooks/useCurrency"
+import { canOpenPage, hasPermission } from "@/lib/access"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -15,7 +19,7 @@ import {
 } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
-  FileSpreadsheet, FileText, Printer, Users, File,
+  FileSpreadsheet, Printer, Users, File,
   Receipt, Activity,
 } from "lucide-react"
 
@@ -24,7 +28,16 @@ const statusMap = {
   inactive: { variant: "destructive", label: "Inactive" },
   paid: { variant: "success", label: "Paid" },
   unpaid: { variant: "warning", label: "Unpaid" },
+  pending: { variant: "warning", label: "Pending" },
+  cancelled: { variant: "outline", label: "Cancelled" },
   overdue: { variant: "destructive", label: "Overdue" },
+}
+
+const reportTypes = {
+  employees: { type: "employee", permission: "employees.read", label: "Employees", icon: Users },
+  documents: { type: "document", permission: "documents.read", label: "Documents", icon: File },
+  bills: { type: "bill", permission: "bills.read", label: "Bills", icon: Receipt },
+  activity: { type: "activity", permission: "activity_logs.read", label: "Activity", icon: Activity },
 }
 
 function ReportTable({ columns, data, isLoading, isError, emptyMessage }) {
@@ -54,7 +67,7 @@ function ReportTable({ columns, data, isLoading, isError, emptyMessage }) {
           <TableRow key={row.id || idx}>
             {columns.map((col) => (
               <TableCell key={col.key}>
-                {col.render ? col.render(row) : row[col.key] || "-"}
+                 {col.render ? col.render(row) : row[col.key] ?? "-"}
               </TableCell>
             ))}
           </TableRow>
@@ -65,162 +78,110 @@ function ReportTable({ columns, data, isLoading, isError, emptyMessage }) {
 }
 
 export default function ReportsPage() {
-  const [activeTab, setActiveTab] = useState("employees")
+  const { user } = useAuth()
+  const { format: formatMoney } = useCurrency()
+  const permitted = (permission) => hasPermission(user, permission)
+  const visibleTabs = Object.entries(reportTypes).filter(([, report]) => permitted(report.permission))
+  const [selectedTab, setSelectedTab] = useState(null)
+  const activeTab = visibleTabs.some(([key]) => key === selectedTab) ? selectedTab : visibleTabs[0]?.[0]
+  const canRead = canOpenPage(user, "reports")
+  const canExport = permitted("reports.export")
   const [dateFrom, setDateFrom] = useState("")
   const [dateTo, setDateTo] = useState("")
   const [departmentFilter, setDepartmentFilter] = useState("all")
-  const [statusFilter, setStatusFilter] = useState("all")
+  const [employeeStatus, setEmployeeStatus] = useState("all")
+  const [billStatus, setBillStatus] = useState("all")
+  const [exporting, setExporting] = useState(false)
+  const invalidDates = activeTab !== "employees" && dateFrom && dateTo && dateFrom > dateTo
+  const dates = { date_from: dateFrom || undefined, date_to: dateTo || undefined }
+  const filters = activeTab === "employees"
+    ? { department_id: departmentFilter === "all" ? undefined : departmentFilter, status: employeeStatus === "all" ? undefined : employeeStatus }
+    : activeTab === "bills" ? { ...dates, status: billStatus === "all" ? undefined : billStatus } : dates
 
-  const { data: employeesData, isLoading: empLoading, isError: empError } = useQuery({
-    queryKey: ["reports-employees", departmentFilter, statusFilter],
-    enabled: activeTab === "employees",
-    queryFn: () =>
-      api.get("/reports/employees", {
-        params: {
-          department_id: departmentFilter !== "all" ? departmentFilter : undefined,
-          status: statusFilter !== "all" ? statusFilter : undefined,
-        },
-      }).then((r) => r.data),
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["reports", activeTab, filters],
+    enabled: canRead && !invalidDates,
+    queryFn: () => api.get(`/reports/${activeTab}`, { params: filters }).then((r) => r.data.data),
   })
 
-  const { data: documentsData, isLoading: docLoading, isError: docError } = useQuery({
-    queryKey: ["reports-documents", dateFrom, dateTo],
-    enabled: activeTab === "documents",
-    queryFn: () =>
-      api.get("/reports/documents", {
-        params: {
-          date_from: dateFrom || undefined,
-          date_to: dateTo || undefined,
-        },
-      }).then((r) => r.data),
-  })
-
-  const { data: billsData, isLoading: billLoading, isError: billError } = useQuery({
-    queryKey: ["reports-bills", dateFrom, dateTo, statusFilter],
-    enabled: activeTab === "bills",
-    queryFn: () =>
-      api.get("/reports/bills", {
-        params: {
-          date_from: dateFrom || undefined,
-          date_to: dateTo || undefined,
-          status: statusFilter !== "all" ? statusFilter : undefined,
-        },
-      }).then((r) => r.data),
-  })
-
-  const { data: activityData, isLoading: actLoading, isError: actError } = useQuery({
-    queryKey: ["reports-activity", dateFrom, dateTo],
-    enabled: activeTab === "activity",
-    queryFn: () =>
-      api.get("/reports/activity", {
-        params: {
-          date_from: dateFrom || undefined,
-          date_to: dateTo || undefined,
-        },
-      }).then((r) => r.data),
+  const { data: departments = [], isError: departmentError } = useQuery({
+    queryKey: ["report-departments"],
+    enabled: canRead && activeTab === "employees",
+    queryFn: () => api.get("/reports/employees/departments").then((r) => r.data.data),
   })
 
   const handlePrint = () => window.print()
 
-  const handleExport = async (format) => {
-    const endpoints = {
-      employees: "/reports/employees/export",
-      documents: "/reports/documents/export",
-      bills: "/reports/bills/export",
-      activity: "/reports/activity/export",
-    }
+  const handleExport = async () => {
+    const { type } = reportTypes[activeTab]
+    setExporting(true)
     try {
-      const response = await api.get(endpoints[activeTab], {
-        params: {
-          date_from: dateFrom || undefined,
-          date_to: dateTo || undefined,
-          format,
-        },
-        responseType: "blob",
-      })
-      const url = window.URL.createObjectURL(new Blob([response.data]))
-      const link = document.createElement("a")
-      link.href = url
-      link.setAttribute("download", `${activeTab}-report.${format === "csv" ? "csv" : format === "pdf" ? "pdf" : "xlsx"}`)
-      document.body.appendChild(link)
-      link.click()
-      link.remove()
-    } catch {
-      // silent
+      await downloadAttachment(`/reports/export/${type}/csv`, `${type}-report.csv`, filters)
+    } catch (error) {
+      toast.error(error.response?.status === 403 ? "You do not have permission to export this report." : "Could not export this report. Please try again.")
+    } finally {
+      setExporting(false)
     }
   }
 
-  const employees = employeesData?.data?.employees || []
-  const documents = documentsData?.data?.documents || []
-  const bills = billsData?.data?.bills || []
-  const activities = activityData?.data?.logs || activityData?.data || []
+  if (!canRead) {
+    return <p role="status" className="text-muted-foreground">You do not have access to any reports.</p>
+  }
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Reports</h1>
           <p className="text-muted-foreground">Generate and export reports</p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => handleExport("csv")}>
-            <FileSpreadsheet className="mr-2 h-4 w-4" /> CSV
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => handleExport("excel")}>
-            <FileText className="mr-2 h-4 w-4" /> Excel
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => handleExport("pdf")}>
-            <FileText className="mr-2 h-4 w-4" /> PDF
-          </Button>
-          <Button variant="outline" size="sm" onClick={handlePrint}>
-            <Printer className="mr-2 h-4 w-4" /> Print
+        <div className="flex flex-wrap gap-2 print:hidden">
+          {canExport && <Button variant="outline" size="sm" disabled={exporting || Boolean(invalidDates)} onClick={handleExport}>
+            <FileSpreadsheet className="mr-2 h-4 w-4" /> {exporting ? "Exporting…" : "Download CSV"}
+          </Button>}
+          <Button variant="outline" size="sm" disabled={isLoading || isError || Boolean(invalidDates)} onClick={handlePrint}>
+            <Printer className="mr-2 h-4 w-4" /> Print / Save as PDF
           </Button>
         </div>
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList>
-          <TabsTrigger value="employees">
-            <Users className="mr-2 h-4 w-4" /> Employees
-          </TabsTrigger>
-          <TabsTrigger value="documents">
-            <File className="mr-2 h-4 w-4" /> Documents
-          </TabsTrigger>
-          <TabsTrigger value="bills">
-            <Receipt className="mr-2 h-4 w-4" /> Bills
-          </TabsTrigger>
-          <TabsTrigger value="activity">
-            <Activity className="mr-2 h-4 w-4" /> Activity
-          </TabsTrigger>
+      <Tabs value={activeTab} onValueChange={setSelectedTab}>
+        <TabsList className="h-auto flex-wrap print:hidden">
+          {visibleTabs.map(([key, { label, icon: Icon }]) => (
+            <TabsTrigger key={key} value={key}><Icon className="mr-2 h-4 w-4" />{label}</TabsTrigger>
+          ))}
         </TabsList>
 
-        <div className="flex flex-wrap items-center gap-3 my-4">
+        <div className="flex flex-wrap items-center gap-3 my-4 print:hidden">
+          {activeTab !== "employees" && <>
           <Input
             type="date"
             className="w-[165px]"
             value={dateFrom}
             onChange={(e) => setDateFrom(e.target.value)}
-            placeholder="From date"
+            aria-label="From date"
           />
           <Input
             type="date"
             className="w-[165px]"
             value={dateTo}
             onChange={(e) => setDateTo(e.target.value)}
-            placeholder="To date"
+            aria-label="To date"
           />
+          </>}
           {activeTab === "employees" && (
             <>
               <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
-                <SelectTrigger className="w-[180px]">
+                <SelectTrigger className="w-[180px]" aria-label="Department">
                   <SelectValue placeholder="All Departments" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Departments</SelectItem>
+                  {departments.map(({ id, name }) => <SelectItem key={id} value={String(id)}>{name}</SelectItem>)}
                 </SelectContent>
               </Select>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-[140px]">
+              <Select value={employeeStatus} onValueChange={setEmployeeStatus}>
+                <SelectTrigger className="w-[140px]" aria-label="Employee status">
                   <SelectValue placeholder="All Status" />
                 </SelectTrigger>
                 <SelectContent>
@@ -232,19 +193,21 @@ export default function ReportsPage() {
             </>
           )}
           {activeTab === "bills" && (
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-[140px]">
+            <Select value={billStatus} onValueChange={setBillStatus}>
+              <SelectTrigger className="w-[140px]" aria-label="Bill status">
                 <SelectValue placeholder="All Status" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Status</SelectItem>
                 <SelectItem value="paid">Paid</SelectItem>
-                <SelectItem value="unpaid">Unpaid</SelectItem>
+                <SelectItem value="pending">Pending</SelectItem>
                 <SelectItem value="overdue">Overdue</SelectItem>
               </SelectContent>
             </Select>
           )}
         </div>
+        {activeTab === "employees" && departmentError && <p role="alert">Could not load departments.</p>}
+        {invalidDates && <p role="alert" className="text-destructive">The end date must be on or after the start date.</p>}
 
         <TabsContent value="employees">
           <Card>
@@ -259,14 +222,14 @@ export default function ReportsPage() {
                   {
                     key: "status", label: "Status",
                     render: (r) => {
-                      const s = statusMap[r.status] || statusMap.active
+                       const s = statusMap[r.status] || { variant: "outline", label: r.status || "Unknown" }
                       return <Badge variant={s.variant}>{s.label}</Badge>
                     },
                   },
                 ]}
-                data={employees}
-                isLoading={empLoading}
-                isError={empError}
+                data={data?.employees || []}
+                isLoading={isLoading}
+                isError={isError}
                 emptyMessage="No employee records found."
               />
             </CardContent>
@@ -284,9 +247,9 @@ export default function ReportsPage() {
                   { key: "uploaded_by", label: "Uploaded By", render: (r) => r.creator?.name || "-" },
                   { key: "created_at", label: "Date", render: (r) => r.created_at ? format(new Date(r.created_at), "MMM dd, yyyy") : "-" },
                 ]}
-                data={documents}
-                isLoading={docLoading}
-                isError={docError}
+                data={data?.documents || []}
+                isLoading={isLoading}
+                isError={isError}
                 emptyMessage="No documents found."
               />
             </CardContent>
@@ -301,19 +264,19 @@ export default function ReportsPage() {
                   { key: "name", label: "Bill Name" },
                   { key: "category", label: "Category", render: (r) => r.category?.name || "-" },
                   { key: "provider", label: "Provider" },
-                  { key: "amount", label: "Amount", render: (r) => `$${Number(r.amount).toFixed(2)}` },
+                  { key: "amount", label: "Amount", render: (r) => formatMoney(r.amount) },
                   { key: "due_date", label: "Due Date", render: (r) => r.due_date ? format(new Date(r.due_date), "MMM dd, yyyy") : "-" },
                   {
                     key: "status", label: "Status",
                     render: (r) => {
-                      const s = statusMap[r.status] || statusMap.unpaid
+                       const s = statusMap[r.status] || { variant: "outline", label: r.status || "Unknown" }
                       return <Badge variant={s.variant}>{s.label}</Badge>
                     },
                   },
                 ]}
-                data={bills}
-                isLoading={billLoading}
-                isError={billError}
+                data={data?.bills || []}
+                isLoading={isLoading}
+                isError={isError}
                 emptyMessage="No bills found."
               />
             </CardContent>
@@ -331,9 +294,9 @@ export default function ReportsPage() {
                   { key: "action", label: "Action" },
                   { key: "description", label: "Description" },
                 ]}
-                data={activities}
-                isLoading={actLoading}
-                isError={actError}
+                data={data?.logs || []}
+                isLoading={isLoading}
+                isError={isError}
                 emptyMessage="No activity records found."
               />
             </CardContent>

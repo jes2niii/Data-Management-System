@@ -13,7 +13,7 @@ Enterprise-grade data management system with centralized document management, em
 
 - PHP 8.2+
 - Composer
-- Node.js 20+
+- Node.js 24 recommended (Vite requires 20.19+ or 22.12+)
 - MySQL 8.0
 - Git
 
@@ -37,7 +37,7 @@ DB_CONNECTION=mysql
 DB_HOST=127.0.0.1
 DB_PORT=3306
 DB_DATABASE=data_management
-DB_USERNAME=root
+DB_USERNAME=dms_user
 DB_PASSWORD=your_password
 
 # Install dependencies
@@ -46,8 +46,8 @@ composer install
 # Generate app key
 php artisan key:generate
 
-# Run migrations and seed
-php artisan migrate:fresh --seed
+# Apply pending migrations (review first and take a verified backup on existing installations)
+php artisan migrate
 
 # Create storage link
 php artisan storage:link
@@ -60,24 +60,21 @@ php artisan serve --port=8000
 
 ```bash
 cd ../frontend
-npm install
+npm ci
 npm run dev
 ```
 
 The app opens at **http://localhost:5173**
 
-### 4. Default Credentials
+### 4. Provision the Administrator (New Database Only)
 
-| Role | Email | Password |
-|------|-------|----------|
-| Super Admin | admin@admin.com | password |
-| Administrator | admin2@admin.com | password |
+There are no default administrator credentials. On an empty, migrated database, supply `DMS_BOOTSTRAP_ADMIN_EMAIL` and a unique `DMS_BOOTSTRAP_ADMIN_PASSWORD` (16–72 bytes) through a protected, one-time environment, then run `php artisan db:seed`. Remove those values afterward. Do not run this seeder to upgrade an existing installation. Optional sample records require both `APP_ENV=local` (or `testing`) and `DMS_DEMO_SEED=true`.
 
 ## Docker Setup
 
 ```bash
-# Start all services (MySQL, backend, frontend, nginx, queue worker, scheduler)
-docker-compose up -d
+# Supply distinct DB_ROOT_PASSWORD and DB_PASSWORD values through a protected environment first.
+docker compose config --quiet
 
 # The app will be available at http://localhost:8080
 ```
@@ -136,7 +133,7 @@ Permissions are managed per module: create, read, update, delete, export, approv
 
 ## API Endpoints
 
-All endpoints are prefixed with `/api` and require authentication (except login/logout). See `routes/api.php` for the complete route list.
+Application API endpoints are prefixed with `/api`. Login and public branding are unauthenticated; the remaining endpoints require Sanctum authentication and, where applicable, module permissions. See [`backend/routes/api.php`](backend/routes/api.php) for the route list.
 
 ## Category Management
 
@@ -151,7 +148,7 @@ Categories are managed in Settings → Categories tab. Each module has its own c
 
 ```bash
 # Backend
-php artisan migrate:fresh --seed    # Reset database with fresh data
+php artisan migrate:status          # Inspect migration state
 php artisan optimize:clear          # Clear all caches
 php artisan storage:link            # Create storage symlink
 php artisan route:list --path=api   # List API routes
@@ -160,3 +157,5 @@ php artisan route:list --path=api   # List API routes
 npm run dev                         # Development server
 npm run build                       # Production build
 ```
+
+See [QA and release readiness](docs/qa-release-readiness.md) for CI checks and staging gates, and [Containment rollout notes](docs/containment-rollout.md) before deploying the security changes. The existing Compose build and ingress setup still need staging verification before production use.

@@ -5,12 +5,16 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\UserStoreRequest;
 use App\Http\Requests\UserUpdateRequest;
+use App\Models\Role;
 use App\Models\User;
+use App\Services\RoleAdministration;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 
 class UserController extends Controller
 {
+    public function __construct(private RoleAdministration $roles) {}
+
     public function index(Request $request)
     {
         $query = User::with(['role', 'department']);
@@ -45,14 +49,18 @@ class UserController extends Controller
 
     public function store(UserStoreRequest $request)
     {
-        $data = $request->validated();
-        $data['password'] = Hash::make($data['password']);
+        $user = $this->roles->change($request->user(), function (User $actor) use ($request) {
+            abort_unless($actor->hasPermission('users', 'create'), 403);
+            $data = $request->validated();
+            $this->roles->checkRole($actor, Role::findOrFail($data['role_id']));
+            $data['password'] = Hash::make($data['password']);
 
-        if ($request->hasFile('photo')) {
-            $data['photo'] = $request->file('photo')->store('avatars', 'public');
-        }
+            if ($request->hasFile('photo')) {
+                $data['photo'] = $request->file('photo')->store('avatars', 'public');
+            }
 
-        $user = User::create($data);
+            return User::create($data);
+        });
 
         return $this->success($user->load(['role', 'department']), 'User created', 201);
     }
@@ -66,62 +74,96 @@ class UserController extends Controller
 
     public function update(UserUpdateRequest $request, $id)
     {
-        $user = User::findOrFail($id);
-        $data = $request->validated();
+        $user = $this->changeUser($id, 'update', function (User $user, User $actor, ?Role $systemRole) use ($request) {
+            $data = $request->validated();
+            if (isset($data['role_id']) && (int) $data['role_id'] !== $user->role_id) {
+                $this->roles->checkRole($actor, Role::findOrFail($data['role_id']));
+                $this->roles->checkAdministratorRemains($user, $systemRole);
+            }
 
-        if ($request->filled('password')) {
-            $data['password'] = Hash::make($data['password']);
-        }
+            if ($request->filled('password')) {
+                $data['password'] = Hash::make($data['password']);
+            }
 
-        if ($request->hasFile('photo')) {
-            $data['photo'] = $request->file('photo')->store('avatars', 'public');
-        }
+            if ($request->hasFile('photo')) {
+                $data['photo'] = $request->file('photo')->store('avatars', 'public');
+            }
 
-        $user->update($data);
+            $user->update($data);
+            if ($user->wasChanged(['role_id', 'department_id', 'password', 'email'])) {
+                $user->tokens()->delete();
+            }
+        });
 
         return $this->success($user->load(['role', 'department']), 'User updated');
     }
 
     public function destroy($id)
     {
-        $user = User::findOrFail($id);
-        $user->delete();
+        $this->changeUser($id, 'delete', function (User $user, User $actor, ?Role $systemRole) {
+            $this->roles->checkAdministratorRemains($user, $systemRole);
+            $user->tokens()->delete();
+            $user->delete();
+        });
 
         return $this->success(null, 'User deleted');
     }
 
     public function disable($id)
     {
-        $user = User::findOrFail($id);
-        $user->update(['is_disabled' => true]);
+        $user = $this->changeUser($id, 'update', function (User $user, User $actor, ?Role $systemRole) {
+            $this->roles->checkAdministratorRemains($user, $systemRole);
+            $user->update(['is_disabled' => true]);
+            $user->tokens()->delete();
+        });
 
         return $this->success($user, 'User disabled');
     }
 
     public function enable($id)
     {
-        $user = User::findOrFail($id);
-        $user->update(['is_disabled' => false]);
+        $user = $this->changeUser($id, 'update', fn (User $user) => $user->update(['is_disabled' => false]));
 
         return $this->success($user, 'User enabled');
     }
 
-    public function resetPassword($id)
+    public function resetPassword(Request $request, $id)
     {
-        $user = User::findOrFail($id);
-        $newPassword = \Illuminate\Support\Str::random(10);
-        $user->update(['password' => Hash::make($newPassword)]);
+        $data = $request->validate(['password' => 'required|string|min:12|max:72']);
+        $this->changeUser($id, 'update', function (User $user) use ($data) {
+            $user->update(['password' => Hash::make($data['password'])]);
+            $user->tokens()->delete();
+        });
 
-        return $this->success(['password' => $newPassword], 'Password reset');
+        return $this->success(null, 'Password reset');
     }
 
     public function assignRole(Request $request, $id)
     {
         $request->validate(['role_id' => 'required|exists:roles,id']);
 
-        $user = User::findOrFail($id);
-        $user->update(['role_id' => $request->role_id]);
+        $user = $this->changeUser($id, 'update', function (User $user, User $actor, ?Role $systemRole) use ($request) {
+            $role = Role::findOrFail($request->role_id);
+            $this->roles->checkRole($actor, $role);
+            if ($role->id !== $user->role_id) {
+                $this->roles->checkAdministratorRemains($user, $systemRole);
+                $user->update(['role_id' => $role->id]);
+                $user->tokens()->delete();
+            }
+        });
 
         return $this->success($user->load('role.permissions'), 'Role assigned');
+    }
+
+    private function changeUser($id, string $action, \Closure $callback): User
+    {
+        return $this->roles->change(request()->user(), function (User $actor, ?Role $systemRole) use ($id, $action, $callback) {
+            abort_unless($actor->hasPermission('users', $action), 403);
+            $target = User::lockForUpdate()->findOrFail($id);
+            $this->roles->checkTarget($actor, $target);
+            $callback($target, $actor, $systemRole);
+
+            return $target;
+        });
     }
 }

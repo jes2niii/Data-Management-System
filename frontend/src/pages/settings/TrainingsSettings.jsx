@@ -2,6 +2,8 @@ import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import api from "@/lib/api"
+import { useAuth } from "@/contexts/AuthContext"
+import { hasPermission } from "@/lib/access"
 import { useCurrency } from "@/hooks/useCurrency"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -559,6 +561,9 @@ function PriceLogsTab() {
 }
 
 export default function TrainingsSettings() {
+  const { user } = useAuth()
+  const canReadDetails = hasPermission(user, "training_details.read")
+  const canReadPrices = hasPermission(user, "training_price_logs.read")
   return (
     <Card>
       <CardHeader>
@@ -569,12 +574,12 @@ export default function TrainingsSettings() {
         <Tabs defaultValue="trainings">
           <TabsList className="flex-wrap">
             <TabsTrigger value="trainings" className="flex items-center gap-1"><GraduationCap className="h-4 w-4" /> Trainings</TabsTrigger>
-            <TabsTrigger value="details" className="flex items-center gap-1"><ListChecks className="h-4 w-4" /> Training Details</TabsTrigger>
-            <TabsTrigger value="logs" className="flex items-center gap-1"><Clock className="h-4 w-4" /> Price Logs</TabsTrigger>
+            {canReadDetails && <TabsTrigger value="details" className="flex items-center gap-1"><ListChecks className="h-4 w-4" /> Training Details</TabsTrigger>}
+            {canReadPrices && <TabsTrigger value="logs" className="flex items-center gap-1"><Clock className="h-4 w-4" /> Price Logs</TabsTrigger>}
           </TabsList>
           <TabsContent value="trainings" className="pt-4"><TrainingsTab /></TabsContent>
-          <TabsContent value="details" className="pt-4"><TrainingDetailsTab /></TabsContent>
-          <TabsContent value="logs" className="pt-4"><PriceLogsTab /></TabsContent>
+          {canReadDetails && <TabsContent value="details" className="pt-4"><TrainingDetailsTab /></TabsContent>}
+          {canReadPrices && <TabsContent value="logs" className="pt-4"><PriceLogsTab /></TabsContent>}
         </Tabs>
       </CardContent>
     </Card>

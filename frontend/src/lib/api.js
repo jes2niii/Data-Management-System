@@ -50,6 +50,29 @@ const api = axios.create({
 
 export { getApiBaseUrl }
 
+export async function downloadAttachment(endpoint, filename, params) {
+  const { data, headers } = await api.get(endpoint, { responseType: "blob", params })
+  const disposition = headers["content-disposition"] || ""
+  const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1]
+  const fallback = disposition.match(/filename="([^"]+)"|filename=([^;]+)/i)
+  let serverFilename = fallback?.[1] || fallback?.[2]?.trim()
+  if (encoded) {
+    try { serverFilename = decodeURIComponent(encoded) } catch { /* Use the plain filename if encoding is invalid. */ }
+  }
+  const url = URL.createObjectURL(data)
+  const link = document.createElement("a")
+  link.href = url
+  link.download = serverFilename || filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+export function downloadDocument(file) {
+  return downloadAttachment(`/files/${file.id}/download`, file.original_name || file.name)
+}
+
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem("access_token")
   if (token) {
@@ -61,16 +84,10 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    if (error.response?.status === 401 && !["/login", "/me", "/logout"].includes(error.config?.url)) {
       localStorage.removeItem("access_token")
       localStorage.removeItem("user")
       window.location.href = "/login"
-    }
-    if (error.response?.status === 403) {
-      const currentPath = window.location.pathname
-      if (currentPath !== "/dashboard") {
-        window.location.href = "/dashboard"
-      }
     }
     return Promise.reject(error)
   }

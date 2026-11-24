@@ -10,6 +10,7 @@ use App\Models\SurveyResponse;
 use App\Models\SurveySection;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class SurveyController extends Controller
 {
@@ -172,49 +173,67 @@ class SurveyController extends Controller
 
     public function submitResponse(Request $request, $id)
     {
-        $form = SurveyForm::findOrFail($id);
-
-        $request->validate([
+        $data = $request->validate([
             'respondent_name' => 'nullable|string|max:255',
-            'respondent_email' => 'nullable|email',
+            'respondent_email' => 'nullable|email|max:255',
             'department' => 'nullable|string|max:255',
-            'answers' => 'required|array',
-            'answers.*.question_id' => 'required|exists:survey_questions,id',
-            'answers.*.score' => 'nullable|integer|min:1',
+            'answers' => 'required|array|list',
+            'answers.*' => 'required|array:question_id,score,answer_text',
+            'answers.*.question_id' => 'required|integer|min:1|distinct',
+            'answers.*.score' => 'nullable|integer|min:0',
             'answers.*.answer_text' => 'nullable|string',
             'remarks' => 'nullable|string',
         ]);
 
-        $totalScore = 0;
-        $questionCount = 0;
+        $response = DB::transaction(function () use ($id, $data, $request) {
+            $form = SurveyForm::lockForUpdate()->findOrFail($id);
+            $questions = $form->questions()->whereIn('id', array_column($data['answers'], 'question_id'))
+                ->lockForUpdate()->get()->keyBy('id');
+            $totalScore = 0;
+            $scored = 0;
 
-        $response = SurveyResponse::create([
-            'survey_form_id' => $form->id,
-            'respondent_name' => $request->respondent_name,
-            'respondent_email' => $request->respondent_email,
-            'department' => $request->department,
-            'remarks' => $request->remarks,
-            'submitted_by' => $request->user()->id,
-        ]);
-
-        foreach ($request->answers as $answer) {
-            if (isset($answer['score'])) {
-                $totalScore += $answer['score'];
-                $questionCount++;
+            foreach ($data['answers'] as $index => $answer) {
+                $question = $questions->get((int) $answer['question_id']);
+                if ($question === null) {
+                    throw ValidationException::withMessages(["answers.{$index}.question_id" => 'The question must belong to this survey.']);
+                }
+                if (!isset($answer['score'])) {
+                    continue;
+                }
+                $score = (int) $answer['score'];
+                $valid = match ($question->type) {
+                    'rating' => $score >= 1 && $score <= $question->max_score,
+                    'yes_no' => $score === 0 || $score === 1,
+                    default => false,
+                };
+                if (!$valid) {
+                    throw ValidationException::withMessages(["answers.{$index}.score" => 'The score is not valid for this question.']);
+                }
+                $totalScore += $score;
+                $scored++;
             }
-            SurveyAnswer::create([
-                'survey_response_id' => $response->id,
+            // The current total_score column is DECIMAL(5, 2).
+            if ($totalScore > 999) {
+                throw ValidationException::withMessages(['answers' => 'The total score exceeds the supported range.']);
+            }
+
+            $response = $form->responses()->create([
+                'respondent_name' => $data['respondent_name'] ?? null,
+                'respondent_email' => $data['respondent_email'] ?? null,
+                'department' => $data['department'] ?? null,
+                'remarks' => $data['remarks'] ?? null,
+                'submitted_by' => $request->user()->id,
+                'total_score' => $totalScore,
+                'average_score' => $scored > 0 ? round($totalScore / $scored, 2) : null,
+            ]);
+            $response->answers()->createMany(array_map(fn (array $answer) => [
                 'survey_question_id' => $answer['question_id'],
                 'score' => $answer['score'] ?? null,
                 'answer_text' => $answer['answer_text'] ?? null,
-            ]);
-        }
+            ], $data['answers']));
 
-        $avg = $questionCount > 0 ? round($totalScore / $questionCount, 2) : null;
-        $response->update([
-            'total_score' => $totalScore,
-            'average_score' => $avg,
-        ]);
+            return $response;
+        });
 
         return $this->success($response->load('answers'), 'Response submitted', 201);
     }

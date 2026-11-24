@@ -10,7 +10,10 @@ class FolderController extends Controller
 {
     public function index(Request $request)
     {
-        $query = Folder::with(['creator'])->withCount(['documents', 'children']);
+        $query = Folder::with(['creator:id,name'])->withCount([
+            'documents' => fn ($query) => $query->visibleTo($request->user()),
+            'children',
+        ]);
 
         if ($request->filled('parent_id')) {
             $query->where('parent_id', $request->parent_id);
@@ -56,8 +59,9 @@ class FolderController extends Controller
 
     public function show($id)
     {
-        $folder = Folder::with(['creator', 'parent', 'children', 'documents'])
-            ->withCount(['documents', 'children'])
+        $visible = fn ($query) => $query->visibleTo(request()->user());
+        $folder = Folder::with(['creator:id,name', 'parent', 'children', 'documents' => $visible])
+            ->withCount(['documents' => $visible, 'children'])
             ->findOrFail($id);
 
         return $this->success($folder);
@@ -89,7 +93,10 @@ class FolderController extends Controller
 
     public function tree()
     {
-        $allFolders = Folder::withCount(['documents', 'children'])->get();
+        $allFolders = Folder::withCount([
+            'documents' => fn ($query) => $query->visibleTo(request()->user()),
+            'children',
+        ])->get();
 
         $tree = $this->buildTree($allFolders);
 

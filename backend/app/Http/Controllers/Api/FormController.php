@@ -11,7 +11,14 @@ class FormController extends Controller
 {
     public function index(Request $request)
     {
-        $query = Form::with(['creator', 'category']);
+        $filters = $request->validate([
+            'search' => 'nullable|string|max:255',
+            'category' => 'nullable|integer|min:1',
+            'is_active' => 'nullable|boolean',
+            'page' => 'nullable|integer|min:1',
+            'per_page' => 'nullable|integer|min:1|max:100',
+        ]);
+        $query = Form::with(['creator:id,name', 'category']);
 
         if ($request->filled('search')) {
             $search = $request->search;
@@ -30,7 +37,7 @@ class FormController extends Controller
         }
 
         $forms = $query->orderBy('created_at', 'desc')
-            ->paginate($request->get('per_page', 15));
+            ->orderByDesc('id')->paginate($filters['per_page'] ?? 15);
 
         return $this->success($forms);
     }
@@ -75,13 +82,13 @@ class FormController extends Controller
 
         $request->validate([
             'name' => 'sometimes|string|max:255',
-            'category' => 'nullable|string|max:100',
+            'form_category_id' => 'sometimes|nullable|exists:form_categories,id',
             'description' => 'nullable|string',
             'file' => 'nullable|file|max:20480',
             'is_active' => 'boolean',
         ]);
 
-        $data = $request->only(['name', 'category', 'description', 'is_active']);
+        $data = $request->only(['name', 'form_category_id', 'description', 'is_active']);
 
         if ($request->hasFile('file')) {
             if ($form->file_path) {
@@ -93,7 +100,7 @@ class FormController extends Controller
 
         $form->update($data);
 
-        return $this->success($form->load('creator'), 'Form updated');
+        return $this->success($form->load(['creator:id,name', 'category']), 'Form updated');
     }
 
     public function destroy($id)
@@ -115,11 +122,15 @@ class FormController extends Controller
             return $this->error('File not found', 404);
         }
 
+        $name = str_replace(['/', '\\'], '_', $form->name);
+        $name = preg_replace('/[\x00-\x1f\x7f]/', '_', $name);
+        $download = Storage::disk('public')->download(
+            $form->file_path,
+            $name . '.' . pathinfo($form->file_path, PATHINFO_EXTENSION),
+            ['Content-Type' => 'application/octet-stream', 'X-Content-Type-Options' => 'nosniff', 'Cache-Control' => 'private, no-store']
+        );
         $form->increment('download_count');
 
-        return Storage::disk('public')->download(
-            $form->file_path,
-            $form->name . '.' . pathinfo($form->file_path, PATHINFO_EXTENSION)
-        );
+        return $download;
     }
 }

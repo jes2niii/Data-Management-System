@@ -6,12 +6,10 @@ services:
     container_name: dms-mysql
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-password}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?Set DB_ROOT_PASSWORD}
       MYSQL_DATABASE: ${DB_DATABASE:-data_management}
       MYSQL_USER: ${DB_USERNAME:-dms_user}
-      MYSQL_PASSWORD: ${DB_PASSWORD:-password}
-    ports:
-      - "${DB_PORT:-3306}:3306"
+      MYSQL_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD}
     volumes:
       - mysql_data:/var/lib/mysql
     networks:
@@ -34,7 +32,7 @@ services:
       DB_PORT: 3306
       DB_DATABASE: ${DB_DATABASE:-data_management}
       DB_USERNAME: ${DB_USERNAME:-dms_user}
-      DB_PASSWORD: ${DB_PASSWORD:-password}
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD}
       SANCTUM_STATEFUL_DOMAINS: ${SANCTUM_STATEFUL_DOMAINS:-localhost:3000}
       SESSION_DOMAIN: ${SESSION_DOMAIN:-localhost}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
@@ -87,7 +85,7 @@ services:
       DB_PORT: 3306
       DB_DATABASE: ${DB_DATABASE:-data_management}
       DB_USERNAME: ${DB_USERNAME:-dms_user}
-      DB_PASSWORD: ${DB_PASSWORD:-password}
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD}
     volumes:
       - ./backend:/var/www
     networks:
@@ -109,7 +107,7 @@ services:
       DB_PORT: 3306
       DB_DATABASE: ${DB_DATABASE:-data_management}
       DB_USERNAME: ${DB_USERNAME:-dms_user}
-      DB_PASSWORD: ${DB_PASSWORD:-password}
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD}
     volumes:
       - ./backend:/var/www
     networks:

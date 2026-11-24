@@ -10,28 +10,17 @@ use App\Models\DocumentShare;
 use App\Models\DocumentVersion;
 use App\Models\Folder;
 use Illuminate\Http\Request;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Filesystem\FilesystemAdapter;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
 
 class DocumentController extends Controller
 {
     public function index(Request $request)
     {
-        $query = Document::with(['folder', 'creator', 'updater', 'documentCategory']);
-        $user = $request->user();
-
-        if (!$user->role || $user->role->name !== 'Super Admin') {
-            $query->where(function ($q) use ($user) {
-                $q->where('created_by', $user->id)
-                  ->orWhereDoesntHave('access')
-                  ->orWhereHas('access', function ($a) use ($user) {
-                      $a->where(function ($b) use ($user) {
-                          $b->where('access_type', 'user')->where('access_id', $user->id);
-                      })->orWhere(function ($b) use ($user) {
-                          $b->where('access_type', 'department')->where('access_id', $user->department_id);
-                      });
-                  });
-            });
-        }
+        $query = $this->visibleDocuments()->with(['folder', 'creator:id,name', 'updater:id,name', 'documentCategory']);
 
         if ($request->has('folder_id')) {
             $query->where('folder_id', $request->folder_id ?: null);
@@ -93,49 +82,49 @@ class DocumentController extends Controller
             'status' => 'nullable|string|in:draft,published,archived',
             'expiration_date' => 'nullable|date',
             'access_type' => 'nullable|string|in:department,user,all',
-            'access_ids' => 'nullable|array',
-            'access_ids.*' => 'integer',
+            'access_ids' => 'required_if:access_type,user,department|nullable|array|min:1',
+            'access_ids.*' => $this->accessIdRules($request),
         ]);
 
         $file = $request->file('file');
-        $path = $file->store('documents', 'public');
+        $path = $file->store('documents', 'documents');
 
-        $document = Document::create([
-            'folder_id' => $request->folder_id,
-            'name' => $request->name ?? $file->getClientOriginalName(),
-            'original_name' => $file->getClientOriginalName(),
-            'file_path' => $path,
-            'file_type' => $file->getClientOriginalExtension(),
-            'file_size' => $file->getSize(),
-            'mime_type' => $file->getMimeType(),
-            'version' => 1,
-            'description' => $request->description,
-            'category' => $request->category,
-            'document_category_id' => $request->document_category_id,
-            'tags' => $request->tags,
-            'labels' => $request->labels,
-            'status' => $request->status ?? 'draft',
-            'expiration_date' => $request->expiration_date,
-            'created_by' => $request->user()->id,
-        ]);
-
-        if ($request->filled('access_type') && $request->access_type !== 'all') {
-            foreach ($request->access_ids ?? [] as $accessId) {
-                DocumentAccess::create([
-                    'document_id' => $document->id,
-                    'access_type' => $request->access_type,
-                    'access_id' => $accessId,
+        try {
+            $document = DB::transaction(function () use ($request, $file, $path) {
+                $document = Document::create([
+                    'folder_id' => $request->folder_id,
+                    'name' => $request->name ?? $file->getClientOriginalName(),
+                    'original_name' => $file->getClientOriginalName(),
+                    'file_path' => $path,
+                    'file_type' => $file->getClientOriginalExtension(),
+                    'file_size' => $file->getSize(),
+                    'mime_type' => $file->getMimeType(),
+                    'version' => 1,
+                    'description' => $request->description,
+                    'category' => $request->category,
+                    'document_category_id' => $request->document_category_id,
+                    'tags' => $request->tags,
+                    'labels' => $request->labels,
+                    'status' => $request->status ?? 'draft',
+                    'expiration_date' => $request->expiration_date,
+                    'created_by' => $request->user()->id,
                 ]);
-            }
+                $this->saveAccess($document, $request);
+
+                return $document;
+            });
+        } catch (\Throwable $exception) {
+            Storage::disk('documents')->delete($path);
+            throw $exception;
         }
 
-        return $this->success($document->load(['folder', 'creator']), 'Document uploaded', 201);
+        return $this->success($document->load(['folder', 'creator:id,name']), 'Document uploaded', 201);
     }
 
     public function show($id)
     {
-        $document = Document::with([
-            'folder', 'creator', 'updater', 'locker', 'approver',
+        $document = $this->visibleDocuments()->with([
+            'folder', 'creator:id,name', 'updater:id,name', 'locker:id,name', 'approver:id,name',
             'versions' => function ($q) { $q->limit(5); },
         ])->findOrFail($id);
 
@@ -144,8 +133,6 @@ class DocumentController extends Controller
 
     public function update(Request $request, $id)
     {
-        $document = Document::findOrFail($id);
-
         $request->validate([
             'name' => 'sometimes|string|max:255',
             'folder_id' => 'nullable|exists:folders,id',
@@ -156,8 +143,8 @@ class DocumentController extends Controller
             'status' => 'nullable|string|in:draft,published,archived',
             'expiration_date' => 'nullable|date',
             'access_type' => 'nullable|string|in:department,user,all',
-            'access_ids' => 'nullable|array',
-            'access_ids.*' => 'integer',
+            'access_ids' => 'required_if:access_type,user,department|nullable|array|min:1',
+            'access_ids.*' => $this->accessIdRules($request),
         ]);
 
         $data = $request->only([
@@ -166,27 +153,23 @@ class DocumentController extends Controller
         ]);
         $data['updated_by'] = $request->user()->id;
 
-        $document->update($data);
-
-        if ($request->has('access_type')) {
-            $document->access()->delete();
-            if ($request->access_type !== 'all') {
-                foreach ($request->access_ids ?? [] as $accessId) {
-                    DocumentAccess::create([
-                        'document_id' => $document->id,
-                        'access_type' => $request->access_type,
-                        'access_id' => $accessId,
-                    ]);
-                }
+        $document = DB::transaction(function () use ($id, $data, $request) {
+            $document = $this->visibleDocuments()->lockForUpdate()->findOrFail($id);
+            $document->update($data);
+            if ($request->filled('access_type')) {
+                $document->access()->delete();
+                $this->saveAccess($document, $request);
             }
-        }
 
-        return $this->success($document->load(['folder', 'creator', 'updater', 'access']), 'Document updated');
+            return $document;
+        });
+
+        return $this->success($document->load(['folder', 'creator:id,name', 'updater:id,name', 'access']), 'Document updated');
     }
 
     public function destroy($id)
     {
-        $document = Document::findOrFail($id);
+        $document = $this->visibleDocuments()->findOrFail($id);
         $document->delete();
 
         return $this->success(null, 'Document moved to trash');
@@ -194,35 +177,43 @@ class DocumentController extends Controller
 
     public function download($id)
     {
-        $document = Document::findOrFail($id);
+        $document = $this->visibleDocuments()->findOrFail($id);
 
-        if (!Storage::disk('public')->exists($document->file_path)) {
+        $disk = $this->documentDisk($document);
+        if (!$disk->exists($document->file_path)) {
             return $this->error('File not found', 404);
         }
 
-        return Storage::disk('public')->download(
+        return $disk->download(
             $document->file_path,
-            $document->original_name
+            $document->original_name,
+            ['Content-Type' => 'application/octet-stream', 'X-Content-Type-Options' => 'nosniff', 'Cache-Control' => 'private, no-store']
         );
     }
 
     public function preview($id)
     {
-        $document = Document::findOrFail($id);
+        $document = $this->visibleDocuments()->findOrFail($id);
 
-        if (!Storage::disk('public')->exists($document->file_path)) {
+        $disk = $this->documentDisk($document);
+        if (!$disk->exists($document->file_path)) {
             return $this->error('File not found', 404);
         }
 
-        return Storage::disk('public')->response(
+        $mime = $disk->mimeType($document->file_path);
+        $safeTypes = ['application/pdf', 'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/bmp', 'text/plain'];
+        abort_unless(in_array($mime, $safeTypes, true), 415, 'Preview is not available for this file type.');
+
+        return $disk->response(
             $document->file_path,
-            $document->original_name
+            $document->original_name,
+            ['Content-Type' => $mime, 'X-Content-Type-Options' => 'nosniff', 'Cache-Control' => 'private, no-store']
         );
     }
 
     public function newVersion(Request $request, $id)
     {
-        $document = Document::findOrFail($id);
+        $this->visibleDocuments()->findOrFail($id);
 
         $request->validate([
             'file' => 'required|file|max:51200',
@@ -230,46 +221,54 @@ class DocumentController extends Controller
         ]);
 
         $file = $request->file('file');
-        $path = $file->store('documents', 'public');
-        $newVersion = $document->version + 1;
+        $path = $file->store('documents', 'documents');
 
-        DocumentVersion::create([
-            'document_id' => $document->id,
-            'version_number' => $document->version,
-            'file_path' => $document->file_path,
-            'file_size' => $document->file_size,
-            'created_by' => $document->created_by,
-            'created_at' => $document->created_at,
-        ]);
+        try {
+            $document = DB::transaction(function () use ($id, $request, $file, $path) {
+                $document = $this->visibleDocuments()->lockForUpdate()->findOrFail($id);
+                $newVersion = $document->version + 1;
 
-        $document->update([
-            'file_path' => $path,
-            'file_type' => $file->getClientOriginalExtension(),
-            'file_size' => $file->getSize(),
-            'mime_type' => $file->getMimeType(),
-            'version' => $newVersion,
-            'original_name' => $file->getClientOriginalName(),
-            'updated_by' => $request->user()->id,
-        ]);
+                DocumentVersion::create([
+                    'document_id' => $document->id,
+                    'version_number' => $document->version,
+                    'file_path' => $document->file_path,
+                    'file_size' => $document->file_size,
+                    'changes' => $request->input('changes'),
+                    'created_by' => $document->updated_by ?? $document->created_by,
+                    'created_at' => $document->updated_at ?? $document->created_at,
+                ]);
 
-        DocumentVersion::where('document_id', $document->id)
-            ->where('version_number', 0)
-            ->delete();
+                $document->update([
+                    'file_path' => $path,
+                    'file_type' => $file->getClientOriginalExtension(),
+                    'file_size' => $file->getSize(),
+                    'mime_type' => $file->getMimeType(),
+                    'version' => $newVersion,
+                    'original_name' => $file->getClientOriginalName(),
+                    'updated_by' => $request->user()->id,
+                ]);
+
+                return $document;
+            });
+        } catch (\Throwable $exception) {
+            Storage::disk('documents')->delete($path);
+            throw $exception;
+        }
 
         return $this->success($document->load('versions'), 'New version uploaded');
     }
 
     public function versions($id)
     {
-        $document = Document::findOrFail($id);
-        $versions = $document->versions()->with('creator')->get();
+        $document = $this->visibleDocuments()->findOrFail($id);
+        $versions = $document->versions()->with('creator:id,name')->get();
 
         return $this->success($versions);
     }
 
     public function restore($id)
     {
-        $document = Document::withTrashed()->findOrFail($id);
+        $document = $this->visibleDocuments()->onlyTrashed()->findOrFail($id);
         $document->restore();
 
         return $this->success($document, 'Document restored');
@@ -277,7 +276,7 @@ class DocumentController extends Controller
 
     public function favorite($id)
     {
-        $document = Document::findOrFail($id);
+        $document = $this->visibleDocuments()->findOrFail($id);
         $document->update(['is_favorite' => !$document->is_favorite]);
 
         return $this->success($document, $document->is_favorite ? 'Added to favorites' : 'Removed from favorites');
@@ -285,7 +284,7 @@ class DocumentController extends Controller
 
     public function lock($id)
     {
-        $document = Document::findOrFail($id);
+        $document = $this->visibleDocuments()->findOrFail($id);
         $user = request()->user();
 
         if ($document->is_locked && $document->locked_by !== $user->id) {
@@ -302,7 +301,7 @@ class DocumentController extends Controller
 
     public function share(Request $request, $id)
     {
-        $document = Document::findOrFail($id);
+        $document = $this->visibleDocuments()->findOrFail($id);
 
         $request->validate([
             'shared_to' => 'required|exists:users,id',
@@ -319,20 +318,20 @@ class DocumentController extends Controller
             'created_at' => now(),
         ]);
 
-        return $this->success($share->load(['recipient']), 'Document shared');
+        return $this->success($share->load(['recipient:id,name']), 'Document shared');
     }
 
     public function comments($id)
     {
-        $document = Document::findOrFail($id);
-        $comments = $document->comments()->with('user')->orderBy('created_at', 'desc')->get();
+        $document = $this->visibleDocuments()->findOrFail($id);
+        $comments = $document->comments()->with('user:id,name')->orderBy('created_at', 'desc')->get();
 
         return $this->success($comments);
     }
 
     public function addComment(Request $request, $id)
     {
-        $document = Document::findOrFail($id);
+        $document = $this->visibleDocuments()->findOrFail($id);
 
         $request->validate(['content' => 'required|string|max:5000']);
 
@@ -341,12 +340,12 @@ class DocumentController extends Controller
             'content' => $request->content,
         ]);
 
-        return $this->success($comment->load('user'), 'Comment added', 201);
+        return $this->success($comment->load('user:id,name'), 'Comment added', 201);
     }
 
     public function approve($id)
     {
-        $document = Document::findOrFail($id);
+        $document = $this->visibleDocuments()->findOrFail($id);
         $document->update([
             'approval_status' => 'approved',
             'approved_by' => request()->user()->id,
@@ -358,7 +357,7 @@ class DocumentController extends Controller
 
     public function reject(Request $request, $id)
     {
-        $document = Document::findOrFail($id);
+        $document = $this->visibleDocuments()->findOrFail($id);
 
         $document->update([
             'approval_status' => 'rejected',
@@ -369,7 +368,7 @@ class DocumentController extends Controller
 
     public function archive($id)
     {
-        $document = Document::findOrFail($id);
+        $document = $this->visibleDocuments()->findOrFail($id);
         $document->update(['status' => 'archived']);
 
         return $this->success($document, 'Document archived');
@@ -377,7 +376,7 @@ class DocumentController extends Controller
 
     public function move(Request $request, $id)
     {
-        $document = Document::findOrFail($id);
+        $document = $this->visibleDocuments()->findOrFail($id);
 
         $request->validate([
             'folder_id' => 'nullable|exists:folders,id',
@@ -389,5 +388,40 @@ class DocumentController extends Controller
         ]);
 
         return $this->success($document->load('folder'), 'Document moved');
+    }
+
+    private function visibleDocuments(): Builder
+    {
+        return Document::query()->visibleTo(request()->user());
+    }
+
+    private function documentDisk(Document $document): FilesystemAdapter
+    {
+        $private = Storage::disk('documents');
+
+        return $private->exists($document->file_path) ? $private : Storage::disk('public');
+    }
+
+    private function accessIdRules(Request $request): array
+    {
+        return match ($request->input('access_type')) {
+            'user' => ['integer', 'distinct', Rule::exists('users', 'id')->whereNull('deleted_at')],
+            'department' => ['integer', 'distinct', Rule::exists('departments', 'id')],
+            default => ['integer', 'distinct'],
+        };
+    }
+
+    private function saveAccess(Document $document, Request $request): void
+    {
+        if (!in_array($request->input('access_type'), ['user', 'department'], true)) {
+            return;
+        }
+
+        foreach ($request->input('access_ids') as $accessId) {
+            $document->access()->create([
+                'access_type' => $request->input('access_type'),
+                'access_id' => $accessId,
+            ]);
+        }
     }
 }

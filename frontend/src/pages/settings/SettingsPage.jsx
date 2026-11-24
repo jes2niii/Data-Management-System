@@ -8,11 +8,10 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
-import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog"
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -20,22 +19,30 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
-import { Camera, Save, Plus, Pencil, Trash2, AlertTriangle, Trash, RefreshCw, Database, Palette, Sun, Moon, Monitor, Layout, Zap, Globe, Bell, Check, X } from "lucide-react"
+import { Camera, Save, Plus, Pencil, Trash2, Palette, Sun, Moon, Monitor, Layout, Zap, Globe, Bell, Check, X } from "lucide-react"
 import { resolveStorageUrl } from "@/hooks/useBranding"
 import RolesPermissionsPage from "@/pages/roles/RolesPermissionsPage"
 import TrainingsSettings from "./TrainingsSettings"
 import { useLanguage } from "@/contexts/LanguageContext"
 import { setLanguage as setLangStorage, getTranslation } from "@/lib/i18n"
+import { useAuth } from "@/contexts/AuthContext"
+import AccessMessage from "@/components/layout/AccessMessage"
+import { canOpenSettingsTab, settingsTabFor } from "@/lib/access"
 
 export default function SettingsPage() {
-  const [searchParams, setSearchParams] = useSearchParams()
-  const activeTab = searchParams.get("tab") || "general"
-  const { data: settingsData } = useQuery({
+  const [searchParams] = useSearchParams()
+  const { user } = useAuth()
+  const activeTab = settingsTabFor(user, searchParams.get("tab"))
+  const allowed = canOpenSettingsTab(user, activeTab)
+  const needsSettings = allowed && ["general", "email"].includes(activeTab)
+  const { data: settingsData, isLoading, isError, refetch } = useQuery({
     queryKey: ["settings"],
+    enabled: needsSettings,
     queryFn: () => api.get("/settings").then((r) => r.data),
   })
 
   const settings = settingsData?.data || settingsData || {}
+  if (!allowed) return <AccessMessage settings />
 
   return (
     <div className="space-y-6">
@@ -44,20 +51,26 @@ export default function SettingsPage() {
         <p className="text-muted-foreground">Configure system settings</p>
       </div>
 
-      {activeTab === "general" && (
+      {needsSettings && isLoading && <p role="status" className="text-muted-foreground">Loading settings…</p>}
+      {needsSettings && isError && <div role="alert" className="space-y-2">
+        <p>Could not load settings.</p>
+        <Button variant="outline" onClick={() => refetch()}>Retry</Button>
+      </div>}
+
+      {activeTab === "general" && !isLoading && !isError && (
         <div className="grid gap-6 lg:grid-cols-2">
           <CompanyProfileSection settings={settings} />
           <SystemPreferencesSection settings={settings} />
         </div>
       )}
 
-      {activeTab === "email" && <EmailSettingsSection settings={settings} />}
+      {activeTab === "email" && !isLoading && !isError && <EmailSettingsSection settings={settings} />}
 
       {activeTab === "categories" && <CategoriesManagement />}
 
       {activeTab === "roles" && <RolesPermissionsPage />}
 
-      {(activeTab === "trainings" || activeTab === "training-details") && <TrainingsSettings />}
+      {activeTab === "trainings" && <TrainingsSettings />}
 
       {activeTab === "personalization" && <PersonalizationSection />}
 
@@ -346,7 +359,7 @@ function EmailSettingsSection({ settings }) {
     smtp_host: settings?.smtp_host || "",
     smtp_port: settings?.smtp_port || "",
     smtp_username: settings?.smtp_username || "",
-    smtp_password: settings?.smtp_password || "",
+    smtp_password: "",
     smtp_encryption: settings?.smtp_encryption || "tls",
     from_address: settings?.from_address || "",
     from_name: settings?.from_name || "",
@@ -357,7 +370,7 @@ function EmailSettingsSection({ settings }) {
       smtp_host: settings?.smtp_host || "",
       smtp_port: settings?.smtp_port || "",
       smtp_username: settings?.smtp_username || "",
-      smtp_password: settings?.smtp_password || "",
+      smtp_password: "",
       smtp_encryption: settings?.smtp_encryption || "tls",
       from_address: settings?.from_address || "",
       from_name: settings?.from_name || "",
@@ -366,13 +379,17 @@ function EmailSettingsSection({ settings }) {
 
   const mutation = useMutation({
     mutationFn: (data) => api.put("/settings/email", data),
-    onSuccess: () => toast.success("Email settings updated"),
+    onSuccess: () => {
+      setForm((previous) => ({ ...previous, smtp_password: "" }))
+      toast.success("Email settings updated")
+    },
     onError: (err) => toast.error(err.response?.data?.message || "Failed to update"),
   })
 
   const handleSubmit = (e) => {
     e.preventDefault()
-    mutation.mutate(form)
+    const { smtp_password, ...fields } = form
+    mutation.mutate(smtp_password ? { ...fields, smtp_password } : fields)
   }
 
   return (
@@ -417,6 +434,8 @@ function EmailSettingsSection({ settings }) {
               <Input
                 id="smtp_password"
                 type="password"
+                autoComplete="new-password"
+                placeholder={settings?.smtp_password_configured ? "Configured — leave blank to keep" : "Enter SMTP password"}
                 value={form.smtp_password}
                 onChange={(e) => setForm({ ...form, smtp_password: e.target.value })}
               />
@@ -799,140 +818,13 @@ function PersonalizationSection() {
 }
 
 function ResetDataSection() {
-  const qc = useQueryClient()
-  const [confirmText, setConfirmText] = useState("")
-  const [selected, setSelected] = useState({ all: true })
-  const [dialogOpen, setDialogOpen] = useState(false)
-
-  const { data: countsData, isLoading, refetch } = useQuery({
-    queryKey: ["settings-data-counts"],
-    queryFn: () => api.get("/settings/data-counts").then(r => r.data),
-  })
-  const counts = countsData?.data || {}
-
-  const resetMutation = useMutation({
-    mutationFn: (payload) => api.post("/settings/reset", payload),
-    onSuccess: (res) => {
-      toast.success(res.data.message || "Data cleared successfully")
-      setDialogOpen(false)
-      setConfirmText("")
-      refetch()
-      qc.invalidateQueries()
-    },
-    onError: (err) => toast.error(err.response?.data?.message || "Reset failed"),
-  })
-
-  const modules = [
-    { key: "employees", label: "Employees", count: counts.employees, desc: "All employee records, attachments & histories" },
-    { key: "attendances", label: "Attendances", count: counts.attendances, desc: "30 days × 2 sessions per employee" },
-    { key: "trainings", label: "Trainings (Courses)", count: counts.trainings, desc: "Master training courses (STCW etc.)" },
-    { key: "training_details", label: "Training Details", count: counts.training_details, desc: "Training detail variants" },
-    { key: "training_monitorings", label: "Training Monitorings", count: counts.training_monitorings, desc: "Trainee enrollment & payment records" },
-    { key: "bills", label: "Bills", count: counts.bills, desc: "All billing records" },
-    { key: "documents", label: "Documents & Folders", count: counts.documents, desc: "Files, folders, versions" },
-    { key: "forms", label: "Forms", count: counts.forms, desc: "Form templates" },
-    { key: "activity_logs", label: "Activity Logs", count: counts.activity_logs, desc: "Audit trail (never delete per spec, but clearable here)" },
-    { key: "notifications", label: "Notifications", count: counts.notifications, desc: "User notifications" },
-  ]
-
-  const totalRecords = Object.values(counts).reduce((a, b) => a + (Number(b) || 0), 0)
-
-  const handleToggle = (key) => {
-    if (key === "all") {
-      setSelected({ all: !selected.all })
-    } else {
-      setSelected(prev => {
-        const next = { ...prev, all: false, [key]: !prev[key] }
-        // If all individual selected, switch to all
-        const allSelected = modules.every(m => next[m.key])
-        if (allSelected) return { all: true }
-        return next
-      })
-    }
-  }
-
-  const getSelectedModules = () => {
-    if (selected.all) return ["all"]
-    return modules.filter(m => selected[m.key]).map(m => m.key)
-  }
-
-  const handleReset = () => {
-    const mods = getSelectedModules()
-    if (mods.length === 0) { toast.error("Select at least one module"); return }
-    if (confirmText !== "RESET") { toast.error("Type RESET to confirm"); return }
-    resetMutation.mutate({ confirm: "RESET", modules: mods })
-  }
-
   return (
-    <div className="space-y-6">
-      <Card className="border-destructive/50">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-destructive"><AlertTriangle className="h-5 w-5" /> Danger Zone — Reset Data</CardTitle>
-          <CardDescription>
-            Permanently delete transactional data. This action cannot be undone. System config (users, roles, departments, categories, settings) is preserved. Only Super Admin / Administrator with <code>settings.update</code> can reset.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="rounded-lg bg-muted p-4">
-            <div className="flex items-center gap-2 text-sm font-medium"><Database className="h-4 w-4" /> Current Data Counts {isLoading ? "(loading...)" : `— ${totalRecords} total records`}</div>
-            <div className="grid gap-2 md:grid-cols-2 mt-3">
-              {modules.map(m => (
-                <div key={m.key} className="flex items-center justify-between rounded border bg-card p-2">
-                  <div className="flex items-center gap-2">
-                    <input type="checkbox" checked={selected.all || !!selected[m.key]} onChange={() => handleToggle(m.key)} className="rounded" disabled={selected.all && m.key !== "all"} />
-                    <div>
-                      <div className="text-sm font-medium">{m.label}</div>
-                      <div className="text-xs text-muted-foreground">{m.desc}</div>
-                    </div>
-                  </div>
-                  <Badge variant={m.count > 0 ? "destructive" : "secondary"}>{m.count ?? 0}</Badge>
-                </div>
-              ))}
-              <div className="flex items-center gap-2 rounded border bg-card p-2 border-primary/50">
-                <input type="checkbox" checked={!!selected.all} onChange={() => handleToggle("all")} className="rounded" />
-                <div className="text-sm font-bold">All Data (Clear All)</div>
-                <Badge variant="outline" className="ml-auto">All</Badge>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            <Button variant="destructive" onClick={() => setDialogOpen(true)} disabled={resetMutation.isPending}>
-              <Trash className="mr-2 h-4 w-4" /> Reset Selected Data
-            </Button>
-            <Button variant="outline" onClick={() => refetch()}><RefreshCw className="mr-2 h-4 w-4" /> Refresh Counts</Button>
-          </div>
-          <p className="text-xs text-muted-foreground">Tip: Truncate via <code>SET FOREIGN_KEY_CHECKS=0</code> then <code>TRUNCATE</code> each table. Training monitorings keep snapshot fees for backtracking, but will be deleted on reset.</p>
-        </CardContent>
-      </Card>
-
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-destructive"><AlertTriangle className="h-5 w-5" /> Confirm Reset</DialogTitle>
-            <DialogDescription>
-              This will permanently delete <strong>{selected.all ? "ALL" : getSelectedModules().join(", ") || "selected"}</strong> data ({selected.all ? totalRecords : modules.filter(m => selected[m.key]).reduce((a,c)=>a+(Number(c.count)||0),0)} records). Type <code>RESET</code> to confirm.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="rounded bg-destructive/10 p-3 text-sm text-destructive">
-              <strong>Warning:</strong> This cannot be undone. All selected records will be truncated. Users, roles, departments and settings are preserved.
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="confirm">Type RESET to confirm</Label>
-              <Input id="confirm" value={confirmText} onChange={e => setConfirmText(e.target.value)} placeholder="RESET" autoFocus />
-            </div>
-            <div className="text-xs text-muted-foreground">Modules: <code>{getSelectedModules().join(", ") || "none"}</code></div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-            <Button variant="destructive" disabled={confirmText !== "RESET" || resetMutation.isPending} onClick={handleReset}>
-              {resetMutation.isPending ? "Resetting..." : "Reset Data"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
+    <Card>
+      <CardHeader>
+        <CardTitle>Web-based data reset is disabled</CardTitle>
+        <CardDescription>Contact your system administrator for data lifecycle and recovery requests.</CardDescription>
+      </CardHeader>
+    </Card>
   )
 }
 
