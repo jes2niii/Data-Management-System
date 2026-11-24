@@ -1,10 +1,10 @@
 import { useEffect } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { z } from "zod"
 import { toast } from "sonner"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import api from "@/lib/api"
+import { userSchema } from "@/lib/user-validation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -23,20 +23,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-
-const userSchema = z.object({
-  name: z.string().min(2, "Name is required"),
-  username: z.string().min(3, "Username must be at least 3 characters"),
-  email: z.string().email("Invalid email address"),
-  password: z.string().min(6, "Password must be at least 6 characters").optional(),
-  role_id: z.string().min(1, "Role is required"),
-  department_id: z.string().min(1, "Department is required"),
-  position: z.string().min(1, "Position is required"),
-  phone: z.string().optional(),
-  address: z.string().optional(),
-  gender: z.string().optional(),
-  status: z.string().default("active"),
-})
 
 export default function UserFormDialog({ open, onClose, user, onSuccess }) {
   const queryClient = useQueryClient()
@@ -121,6 +107,10 @@ export default function UserFormDialog({ open, onClose, user, onSuccess }) {
   })
 
   const onSubmit = (data) => {
+    if (!isEditing && !data.password) {
+      form.setError("password", { type: "manual", message: "Password is required" })
+      return
+    }
     const payload = { ...data }
     if (isEditing && !payload.password) {
       delete payload.password
@@ -143,6 +133,11 @@ export default function UserFormDialog({ open, onClose, user, onSuccess }) {
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+          {Object.keys(form.formState.errors).length > 0 && (
+            <p role="alert" className="text-sm text-destructive">
+              {Object.values(form.formState.errors).map((error) => error?.message).filter(Boolean).join("; ") || "Check the highlighted fields before saving."}
+            </p>
+          )}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="name">Name *</Label>
@@ -233,6 +228,9 @@ export default function UserFormDialog({ open, onClose, user, onSuccess }) {
             <div className="space-y-2">
               <Label htmlFor="position">Position</Label>
               <Input id="position" {...form.register("position")} placeholder="Position" />
+              {form.formState.errors.position && (
+                <p className="text-sm text-destructive">{form.formState.errors.position.message}</p>
+              )}
             </div>
             <div className="space-y-2">
               <Label>Gender</Label>

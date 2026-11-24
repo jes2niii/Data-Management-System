@@ -29,6 +29,38 @@ const statusMap = {
   info: { variant: "default", label: "Info" },
 }
 
+const moduleOptions = [
+  ["users", "Users"],
+  ["employees", "Employees"],
+  ["departments", "Departments"],
+  ["documents", "Documents"],
+  ["folders", "Folders"],
+  ["forms", "Forms"],
+  ["items", "Items"],
+  ["bills", "Bills"],
+  ["bill_categories", "Bill Categories"],
+  ["subscriptions", "Subscriptions"],
+  ["attendances", "Attendances"],
+  ["inventory", "Inventory"],
+  ["book_inventories", "Book Inventories"],
+  ["trainings", "Trainings"],
+  ["training_monitorings", "Training Monitorings"],
+  ["settings", "Settings"],
+  ["profile", "Profile"],
+  ["auth", "Auth"],
+  ["files", "Files (legacy)"],
+  ["billing", "Billing (legacy)"],
+]
+
+const actionOptions = [
+  ["create", "Create"], ["update", "Update"], ["delete", "Delete"],
+  ["login", "Login"], ["logout", "Logout"],
+  ["approve", "Approve"], ["reject", "Reject"], ["adjust", "Adjust"],
+  ["renew", "Renew"], ["restore", "Restore"], ["lock", "Lock"],
+  ["share", "Share"], ["move", "Move"], ["archive", "Archive"],
+  ["mark_paid", "Mark Paid"], ["analyze", "Analyze"],
+]
+
 export default function ActivityLogsPage() {
   const [search, setSearch] = useState("")
   const [moduleFilter, setModuleFilter] = useState("all")
@@ -117,13 +149,7 @@ export default function ActivityLogsPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Modules</SelectItem>
-                <SelectItem value="users">Users</SelectItem>
-                <SelectItem value="employees">Employees</SelectItem>
-                <SelectItem value="files">Files</SelectItem>
-                <SelectItem value="billing">Billing</SelectItem>
-                <SelectItem value="forms">Forms</SelectItem>
-                <SelectItem value="settings">Settings</SelectItem>
-                <SelectItem value="auth">Auth</SelectItem>
+                {moduleOptions.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}
               </SelectContent>
             </Select>
             <Select value={actionFilter} onValueChange={(v) => { setActionFilter(v); setPage(1) }}>
@@ -132,13 +158,7 @@ export default function ActivityLogsPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Actions</SelectItem>
-                <SelectItem value="create">Create</SelectItem>
-                <SelectItem value="update">Update</SelectItem>
-                <SelectItem value="delete">Delete</SelectItem>
-                <SelectItem value="login">Login</SelectItem>
-                <SelectItem value="logout">Logout</SelectItem>
-                <SelectItem value="upload">Upload</SelectItem>
-                <SelectItem value="download">Download</SelectItem>
+                {actionOptions.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}
               </SelectContent>
             </Select>
             <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(1) }}>

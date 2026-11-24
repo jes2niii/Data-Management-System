@@ -392,6 +392,40 @@ class ContainmentTest extends TestCase
         }
     }
 
+    public function test_activity_logs_name_the_actual_module_record_and_verb(): void
+    {
+        $user = $this->account(['departments.create', 'departments.update', 'bills.update']);
+        Sanctum::actingAs($user);
+
+        $department = $this->postJson('/api/departments', ['name' => 'Quality Control', 'code' => 'QC'])
+            ->assertCreated()->json('data');
+        $this->putJson("/api/departments/{$department['id']}", ['name' => 'Quality Assurance'])->assertOk();
+
+        $created = ActivityLog::where('module', 'departments')->where('action', 'create')->sole();
+        $this->assertStringContainsString('Created department "Quality Control"', $created->description);
+        $this->assertStringNotContainsString('#', $created->description);
+        $this->assertStringNotContainsString('employees', $created->description);
+        $this->assertSame('Quality Control', $created->new_values['name']);
+        $updated = ActivityLog::where('module', 'departments')->where('action', 'update')->sole();
+        $this->assertStringContainsString('Updated department "Quality Assurance"', $updated->description);
+        $this->assertStringContainsString('Name: "Quality Control" → "Quality Assurance"', $updated->description);
+        $this->assertSame('Quality Control', $updated->old_values['name']);
+        $this->assertSame('Quality Assurance', $updated->new_values['name']);
+        $this->assertSame('Department', $updated->affected_record_type);
+
+        $subscription = Subscription::create([
+            'name' => 'Hosting', 'amount' => 100, 'billing_cycle' => 'monthly',
+            'billing_frequency' => 1, 'next_billing_date' => '2026-08-01', 'status' => 'active',
+        ]);
+        $this->postJson("/api/subscriptions/{$subscription->id}/renew")->assertOk();
+        $renewed = ActivityLog::where('module', 'subscriptions')->where('action', 'renew')->sole();
+        $this->assertStringContainsString('Renewed subscription', $renewed->description);
+
+        $this->postJson('/api/departments', ['name' => 'Missing code'])->assertUnprocessable();
+        $failed = ActivityLog::where('module', 'departments')->where('status', 'failed')->latest('id')->first();
+        $this->assertStringContainsString('Failed to create department', $failed->description);
+    }
+
     public function test_empty_department_can_be_deleted_but_hidden_members_still_block_it(): void
     {
         $admin = $this->account(['departments.read', 'departments.delete']);
@@ -409,6 +443,33 @@ class ContainmentTest extends TestCase
         $this->deleteJson("/api/departments/{$used->id}")->assertStatus(409);
         $this->assertStringContainsString('1 deleted user', $this->deleteJson("/api/departments/{$used->id}")->json('message'));
         $this->assertDatabaseHas('departments', ['id' => $used->id]);
+    }
+
+    public function test_toggle_status_uses_the_disable_and_enable_endpoints(): void
+    {
+        $admin = $this->account([], Role::SUPER_ADMIN);
+        $target = $this->account();
+        Sanctum::actingAs($admin);
+
+        $this->postJson("/api/users/{$target->id}/disable")->assertOk();
+        $this->assertTrue($target->fresh()->is_disabled);
+        $this->postJson("/api/users/{$target->id}/enable")->assertOk();
+        $this->assertFalse($target->fresh()->is_disabled);
+        $this->putJson("/api/users/{$target->id}/status", ['status' => false])->assertNotFound();
+    }
+
+    public function test_the_user_edit_dialog_payload_is_accepted(): void
+    {
+        $admin = $this->account([], Role::SUPER_ADMIN);
+        $target = $this->account();
+        Sanctum::actingAs($admin);
+
+        $this->putJson("/api/users/{$target->id}", [
+            'name' => 'Updated Name', 'username' => $target->username, 'email' => $target->email,
+            'role_id' => (int) $target->role_id, 'department_id' => (int) $target->department_id,
+            'position' => '', 'phone' => '', 'address' => '', 'gender' => '', 'status' => 'active',
+        ])->assertOk()->assertJsonPath('data.name', 'Updated Name');
+        $this->assertSame('Updated Name', $target->fresh()->name);
     }
 
     public function test_password_change_requires_current_password_and_revokes_tokens(): void

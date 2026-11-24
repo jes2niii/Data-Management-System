@@ -20,7 +20,7 @@ class UserUpdateRequest extends FormRequest
             'email' => 'sometimes|email|unique:users,email,' . $userId,
             'username' => 'sometimes|string|max:255|unique:users,username,' . $userId,
             'password' => 'sometimes|string|min:6',
-            'position' => 'sometimes|string|max:255',
+            'position' => 'sometimes|nullable|string|max:255',
             'department_id' => 'sometimes|exists:departments,id',
             'role_id' => 'sometimes|exists:roles,id',
             'phone' => 'nullable|string|max:20',

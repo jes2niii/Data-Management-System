@@ -76,6 +76,11 @@ class UserController extends Controller
     {
         $user = $this->changeUser($id, 'update', function (User $user, User $actor, ?Role $systemRole) use ($request) {
             $data = $request->validated();
+            // position is NOT NULL in the schema; an intentionally blank field
+            // arrives as null after empty-string conversion, so store it as ''.
+            if (array_key_exists('position', $data) && $data['position'] === null) {
+                $data['position'] = '';
+            }
             if (isset($data['role_id']) && (int) $data['role_id'] !== $user->role_id) {
                 $this->roles->checkRole($actor, Role::findOrFail($data['role_id']));
                 $this->roles->checkAdministratorRemains($user, $systemRole);

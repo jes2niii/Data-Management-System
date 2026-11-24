@@ -71,9 +71,9 @@ export default function UsersPage() {
   })
 
   const toggleStatusMutation = useMutation({
-    mutationFn: ({ id, status }) => api.put(`/users/${id}/status`, { status: !status }),
-    onSuccess: () => {
-      toast.success("User status updated")
+    mutationFn: ({ id, disabled }) => api.post(`/users/${id}/${disabled ? 'enable' : 'disable'}`),
+    onSuccess: (_, { disabled }) => {
+      toast.success(disabled ? "User enabled" : "User disabled")
       queryClient.invalidateQueries({ queryKey: ["users"] })
     },
     onError: (err) => toast.error(err.response?.data?.message || "Failed to update status"),
@@ -236,13 +236,13 @@ export default function UsersPage() {
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               onClick={() =>
-                                toggleStatusMutation.mutate({ id: user.id, status: user.status })
+                                toggleStatusMutation.mutate({ id: user.id, disabled: Boolean(user.is_disabled) })
                               }
                             >
-                              {user.status !== false ? (
-                                <><ShieldBan className="mr-2 h-4 w-4" /> Disable</>
-                              ) : (
+                              {user.is_disabled ? (
                                 <><ShieldCheck className="mr-2 h-4 w-4" /> Enable</>
+                              ) : (
+                                <><ShieldBan className="mr-2 h-4 w-4" /> Disable</>
                               )}
                             </DropdownMenuItem>
                             <DropdownMenuItem
