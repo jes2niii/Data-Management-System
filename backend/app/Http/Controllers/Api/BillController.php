@@ -7,6 +7,7 @@ use App\Http\Requests\BillStoreRequest;
 use App\Http\Requests\BillUpdateRequest;
 use App\Models\Bill;
 use App\Models\BillAttachment;
+use App\Services\CsvReport;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Response;
@@ -16,7 +17,16 @@ class BillController extends Controller
 {
     public function index(Request $request)
     {
-        $query = Bill::with(['category', 'creator']);
+        $bills = $this->filteredQuery($request)->with(['category', 'creator'])
+            ->orderBy('created_at', 'desc')
+            ->paginate($request->get('per_page', 15));
+
+        return $this->success($bills);
+    }
+
+    private function filteredQuery(Request $request): \Illuminate\Database\Eloquent\Builder
+    {
+        $query = Bill::query();
 
         if ($request->filled('status')) {
             $query->where('status', $request->status);
@@ -43,6 +53,10 @@ class BillController extends Controller
 
         if ($request->filled('date_from') && $request->filled('date_to')) {
             $query->whereBetween('billing_date', [$request->date_from, $request->date_to]);
+        } elseif ($request->filled('date_from')) {
+            $query->where('billing_date', '>=', $request->date_from);
+        } elseif ($request->filled('date_to')) {
+            $query->where('billing_date', '<=', $request->date_to);
         }
 
         if ($request->filled('due_before')) {
@@ -50,10 +64,7 @@ class BillController extends Controller
                 ->where('status', '!=', 'paid');
         }
 
-        $bills = $query->orderBy('created_at', 'desc')
-            ->paginate($request->get('per_page', 15));
-
-        return $this->success($bills);
+        return $query;
     }
 
     public function store(BillStoreRequest $request)
@@ -128,15 +139,15 @@ class BillController extends Controller
     {
         $bill = Bill::findOrFail($id);
 
-        $request->validate([
-            'payment_date' => 'required|date',
+        $data = $request->validate([
+            'payment_date' => 'nullable|date',
             'payment_method' => 'nullable|string|max:50',
         ]);
 
         $bill->update([
             'status' => 'paid',
-            'payment_date' => $request->payment_date,
-            'payment_method' => $request->payment_method,
+            'payment_date' => $data['payment_date'] ?? $bill->payment_date ?? now()->toDateString(),
+            'payment_method' => $data['payment_method'] ?? $bill->payment_method,
         ]);
 
         return $this->success($bill->load('category'), 'Bill marked as paid');
@@ -189,19 +200,10 @@ class BillController extends Controller
         ]);
     }
 
-    public function export(Request $request, $format)
+    public function export(Request $request, CsvReport $csv, $format)
     {
-        $query = Bill::with(['category', 'creator']);
-
-        if ($request->filled('status')) {
-            $query->where('status', $request->status);
-        }
-
-        if ($request->filled('date_from') && $request->filled('date_to')) {
-            $query->whereBetween('billing_date', [$request->date_from, $request->date_to]);
-        }
-
-        $bills = $query->get();
+        $bills = $this->filteredQuery($request)->with(['category'])
+            ->orderBy('created_at', 'desc')->get();
 
         $exportData = $bills->map(function ($bill) {
             return [
@@ -220,39 +222,19 @@ class BillController extends Controller
         })->toArray();
 
         if ($format === 'csv') {
-            $csv = $this->arrayToCsv($exportData);
-            return Response::make($csv, 200, [
-                'Content-Type' => 'text/csv',
-                'Content-Disposition' => 'attachment; filename="bills-export.csv"',
-            ]);
+            return $csv->download('bills-export.csv', [
+                'ID', 'Name', 'Category', 'Provider', 'Reference', 'Amount',
+                'Billing Date', 'Due Date', 'Payment Date', 'Status', 'Payment Method',
+            ], $exportData);
         }
 
         if ($format === 'json') {
             return Response::json($exportData, 200, [
                 'Content-Disposition' => 'attachment; filename="bills-export.json"',
+                'Cache-Control' => 'private, no-store',
             ]);
         }
 
         return $this->error('Unsupported export format', 400);
-    }
-
-    private function arrayToCsv(array $data): string
-    {
-        if (empty($data)) {
-            return '';
-        }
-
-        $output = fopen('php://temp', 'r+');
-        fputcsv($output, array_keys($data[0]));
-
-        foreach ($data as $row) {
-            fputcsv($output, $row);
-        }
-
-        rewind($output);
-        $csv = stream_get_contents($output);
-        fclose($output);
-
-        return $csv;
     }
 }

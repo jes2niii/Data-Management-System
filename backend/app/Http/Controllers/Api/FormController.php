@@ -76,11 +76,9 @@ class FormController extends Controller
         return $this->success($form);
     }
 
-    public function update(Request $request, $id)
+    public function update(Request $request, \App\Services\StageReplacement $replacement, $id)
     {
-        $form = Form::findOrFail($id);
-
-        $request->validate([
+        $data = $request->validate([
             'name' => 'sometimes|string|max:255',
             'form_category_id' => 'sometimes|nullable|exists:form_categories,id',
             'description' => 'nullable|string',
@@ -88,17 +86,21 @@ class FormController extends Controller
             'is_active' => 'boolean',
         ]);
 
-        $data = $request->only(['name', 'form_category_id', 'description', 'is_active']);
-
-        if ($request->hasFile('file')) {
-            if ($form->file_path) {
-                Storage::disk('public')->delete($form->file_path);
+        $form = $replacement->commit($request->file('file'), 'forms', function (?string $path) use ($id, $data, $replacement) {
+            $form = Form::lockForUpdate()->findOrFail($id);
+            unset($data['file']);
+            $previous = $form->file_path;
+            if ($path !== null) {
+                $data['file_path'] = $path;
+                $data['version'] = $form->version + 1;
             }
-            $data['file_path'] = $request->file('file')->store('forms', 'public');
-            $data['version'] = $form->version + 1;
-        }
+            $form->update($data);
+            if ($path !== null && $previous !== null && !Form::whereKeyNot($form->id)->where('file_path', $previous)->exists()) {
+                $replacement->retainAfterCommit($previous, 'forms');
+            }
 
-        $form->update($data);
+            return $form;
+        });
 
         return $this->success($form->load(['creator:id,name', 'category']), 'Form updated');
     }

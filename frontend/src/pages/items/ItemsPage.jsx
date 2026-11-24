@@ -51,7 +51,7 @@ export default function ItemsPage() {
     queryFn: () => api.get("/surveys", { params: { search, type: typeFilter !== "all" ? typeFilter : undefined, page, per_page: perPage } }).then(r => r.data),
   })
 
-  const { data: detailData, refetch: refetchDetail } = useQuery({
+  const { data: detailData } = useQuery({
     queryKey: ["survey-detail", selectedForm?.id],
     enabled: !!selectedForm?.id && (detailOpen || analysisOpen),
     queryFn: () => api.get(`/surveys/${selectedForm.id}`).then(r => r.data),
@@ -66,6 +66,7 @@ export default function ItemsPage() {
   const forms = data?.data?.data || []
   const totalPages = data?.data?.last_page || 1
   const survey = detailData?.data || {}
+  const structureLocked = Number(editingForm?.total_responses || 0) > 0
 
   const mutation = useMutation({
     mutationFn: (fd) => editingForm ? api.put(`/surveys/${editingForm.id}`, fd) : api.post("/surveys", fd),
@@ -109,7 +110,6 @@ export default function ItemsPage() {
   }
 
   const handleEdit = async (f) => {
-    setEditingForm(f)
     try {
       const res = await api.get(`/surveys/${f.id}`)
       const survey = res.data?.data
@@ -118,14 +118,19 @@ export default function ItemsPage() {
         title: s.title || "",
         questions: s.questions?.length > 0 ? s.questions.map(q => ({ id: q.id, question: q.question || "", type: q.type || "rating", max_score: q.max_score || 5 })) : [{ question: "", type: "rating", max_score: 5 }]
       })) : [{ title: "", questions: [{ question: "", type: "rating", max_score: 5 }] }]
+      setEditingForm(survey)
       setFormData({ title: survey.title || "", description: survey.description || "", type: survey.type || "feedback", sections })
+      setDialogOpen(true)
     } catch {
-      setFormData({ title: f.title || "", description: f.description || "", type: f.type || "feedback", sections: [{ title: "", questions: [{ question: "", type: "rating", max_score: 5 }] }] })
+      toast.error("Could not load the survey. No edits were made.")
     }
-    setDialogOpen(true)
   }
 
-  const openDetail = (f) => { setSelectedForm(f); setDetailOpen(true); refetchDetail() }
+  const openDetail = (f) => {
+    setRespondData({ respondent_name: "", department: "", remarks: "", answers: [] })
+    setSelectedForm(f)
+    setDetailOpen(true)
+  }
   const surveyQuestions = (survey.sections || []).flatMap(s => s.questions || [])
 
   const openRespond = () => {
@@ -229,7 +234,8 @@ export default function ItemsPage() {
               <div className="space-y-2"><Label>Type</Label><Select value={formData.type} onValueChange={v => setFormData({ ...formData, type: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="feedback">Feedback</SelectItem><SelectItem value="survey">Survey</SelectItem><SelectItem value="assessment">Assessment</SelectItem><SelectItem value="evaluation">Evaluation</SelectItem></SelectContent></Select></div>
             </div>
             <div className="space-y-2"><Label>Description</Label><Input value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} /></div>
-            <Separator />
+             {structureLocked ? <p role="status" className="text-sm text-muted-foreground">Questions are locked because responses have been recorded.</p> : <>
+             <Separator />
             <div className="flex items-center justify-between"><Label className="font-semibold">Sections</Label><Button variant="outline" size="sm" onClick={addSection}><Plus className="mr-1 h-3 w-3" /> Add Section</Button></div>
             <div className="space-y-4">
               {formData.sections.map((sec, si) => (
@@ -238,7 +244,7 @@ export default function ItemsPage() {
                     <span className="text-sm font-semibold">Section {si + 1}</span>
                     <Input className="flex-1" value={sec.title} placeholder="Section title" onChange={e => { const secs = [...formData.sections]; secs[si].title = e.target.value; setFormData({ ...formData, sections: secs }) }} />
                     {formData.sections.length > 1 && <Button variant="ghost" size="icon" onClick={() => removeSection(si)}><Trash2 className="h-4 w-4 text-destructive" /></Button>}
-                  </div>
+                   </div>
                   <div className="flex items-center justify-between"><Label className="text-xs text-muted-foreground">Questions</Label><Button variant="ghost" size="sm" onClick={() => addQuestion(si)}><Plus className="mr-1 h-3 w-3" /> Add</Button></div>
                   {sec.questions.map((q, qi) => (
                     <div key={qi} className="flex items-start gap-2 pl-2">
@@ -258,11 +264,14 @@ export default function ItemsPage() {
                   ))}
                 </div>
               ))}
-            </div>
+            </div></>}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setDialogOpen(false); setEditingForm(null) }}>Cancel</Button>
-            <Button disabled={!formData.title.trim() || mutation.isPending} onClick={() => mutation.mutate(formData)}>{mutation.isPending ? "Saving..." : "Save"}</Button>
+             <Button disabled={!formData.title.trim() || mutation.isPending} onClick={() => {
+               const { sections, ...fields } = formData
+               mutation.mutate(structureLocked ? fields : { ...fields, sections })
+             }}>{mutation.isPending ? "Saving..." : "Save"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -272,7 +281,7 @@ export default function ItemsPage() {
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>{survey.title}</DialogTitle><DialogDescription>{survey.description}</DialogDescription></DialogHeader>
           <Tabs defaultValue="preview">
-            <TabsList><TabsTrigger value="preview">Preview</TabsTrigger><TabsTrigger value="respond">Submit Response</TabsTrigger></TabsList>
+             <TabsList><TabsTrigger value="preview">Preview</TabsTrigger><TabsTrigger value="respond" disabled={survey.status !== "active"}>Submit Response</TabsTrigger></TabsList>
             <TabsContent value="preview" className="space-y-4 pt-4">
               <div className="flex gap-4 text-sm"><span className="text-muted-foreground">Type: <Badge variant="outline">{typeMap[survey.type]}</Badge></span><span className="text-muted-foreground">Rating: <Star className="inline h-3 w-3 text-yellow-500" /> {Number(survey.average_rating || 0).toFixed(1)}</span><span className="text-muted-foreground">Responses: <Users className="inline h-3 w-3" /> {survey.total_responses || 0}</span></div>
               <div className="space-y-4">
@@ -331,7 +340,9 @@ export default function ItemsPage() {
                 ))}
               </div>
               <div className="space-y-2"><Label>Remarks</Label><Input value={respondData.remarks} onChange={e => setRespondData({ ...respondData, remarks: e.target.value })} /></div>
-              <Button className="w-full" disabled={respondMutation.isPending} onClick={() => respondMutation.mutate(respondData)}>{respondMutation.isPending ? "Submitting..." : "Submit Response"}</Button>
+               <Button className="w-full" disabled={respondMutation.isPending || survey.status !== "active" || !respondData.answers.some(Boolean)} onClick={() => {
+                 respondMutation.mutate({ ...respondData, answers: respondData.answers.filter(Boolean) })
+               }}>{respondMutation.isPending ? "Submitting..." : "Submit Response"}</Button>
             </TabsContent>
           </Tabs>
         </DialogContent>

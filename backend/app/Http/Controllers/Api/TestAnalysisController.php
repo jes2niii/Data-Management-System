@@ -86,49 +86,48 @@ class TestAnalysisController extends Controller
 
     public function update(Request $request, $id)
     {
-        $exam = TestExam::with('items')->findOrFail($id);
-        $request->validate([
-            'title' => 'sometimes|string|max:255',
+        $data = $request->validate([
+            'title' => 'sometimes|required|string|max:255',
             'description' => 'nullable|string',
             'subject' => 'nullable|string|max:100',
-            'items' => 'nullable|array',
-            'items.*.item_number' => 'required|integer',
+            'items' => 'sometimes|required|array|list',
+            'items.*.id' => 'sometimes|required|integer|min:1|distinct',
+            'items.*.item_number' => 'required|integer|min:1|distinct',
             'items.*.question' => 'nullable|string',
             'items.*.correct_answer' => 'nullable|string|max:50',
             'items.*.item_type' => 'nullable|string|in:multiple_choice,true_false,identification',
             'items.*.options' => 'nullable|array',
             'items.*.options.*' => 'string',
         ]);
-        $exam->update($request->only(['title', 'description', 'subject']));
+        $exam = DB::transaction(function () use ($id, $data) {
+            $exam = TestExam::lockForUpdate()->findOrFail($id);
+            $metadata = \Illuminate\Support\Arr::except($data, ['items']);
+            if (isset($data['items'])) {
+                abort_if($exam->students()->exists() || $exam->analysis()->exists() || TestAnswer::whereHas('item', fn ($query) =>
+                    $query->where('test_exam_id', $exam->id))->exists(),
+                    409, 'Exam items cannot be changed after scores or analysis have been recorded. Create a new exam for structural changes.');
 
-        if ($request->has('items')) {
-            $keepIds = [];
-            foreach ($request->items as $itemData) {
-                $id = $itemData['id'] ?? null;
-                if ($id && $exam->items->contains($id)) {
-                    $item = TestItem::find($id);
-                    $item->update([
-                        'question' => $itemData['question'] ?? $item->question,
-                        'correct_answer' => $itemData['correct_answer'] ?? $item->correct_answer,
-                        'item_number' => $itemData['item_number'],
-                        'item_type' => $itemData['item_type'] ?? $item->item_type,
-                        'options' => $itemData['options'] ?? $item->options,
-                    ]);
-                } else {
-                    $item = TestItem::create([
-                        'test_exam_id' => $exam->id,
-                        'item_number' => $itemData['item_number'],
-                        'question' => $itemData['question'] ?? null,
-                        'correct_answer' => $itemData['correct_answer'] ?? null,
-                        'item_type' => $itemData['item_type'] ?? self::ITEM_TYPE_MC,
-                        'options' => $itemData['options'] ?? null,
-                    ]);
+                $existing = $exam->items()->get()->keyBy('id');
+                $keep = [];
+                foreach ($data['items'] as $index => $values) {
+                    $item = isset($values['id']) ? $existing->get($values['id']) : new TestItem(['item_type' => self::ITEM_TYPE_MC]);
+                    if ($item === null) {
+                        throw ValidationException::withMessages(["items.{$index}.id" => 'The item must belong to this exam.']);
+                    }
+                    $attributes = \Illuminate\Support\Arr::only($values, ['item_number', 'question', 'correct_answer', 'item_type', 'options']);
+                    if (array_key_exists('item_type', $attributes) && $attributes['item_type'] === null) {
+                        unset($attributes['item_type']);
+                    }
+                    $exam->items()->save($item->fill($attributes));
+                    $keep[] = $item->id;
                 }
-                $keepIds[] = $item->id;
+                $exam->items()->whereNotIn('id', $keep)->delete();
+                $metadata['total_items'] = count($keep);
             }
-            $exam->items()->whereNotIn('id', $keepIds)->delete();
-            $exam->update(['total_items' => count($keepIds)]);
-        }
+            $exam->update($metadata);
+
+            return $exam;
+        });
 
         return $this->success($exam->load('items'), 'Exam updated');
     }
@@ -152,6 +151,9 @@ class TestAnalysisController extends Controller
 
         $exam = DB::transaction(function () use ($id, $data) {
             $exam = TestExam::lockForUpdate()->findOrFail($id);
+            // Scores changed the population, so the previous item analysis is stale.
+            $exam->analysis()->delete();
+            TestStudent::where('test_exam_id', $exam->id)->update(['group' => null, 'rank' => null]);
             $items = $exam->items()->lockForUpdate()->get()->keyBy('id');
             $totalItems = $items->count();
 
@@ -190,8 +192,8 @@ class TestAnalysisController extends Controller
 
     public function runAnalysis($id)
     {
-        $exam = TestExam::with(['items', 'students.answers'])->findOrFail($id);
-        $students = $exam->students()->orderBy('total_score', 'desc')->get();
+        $exam = TestExam::with(['items'])->findOrFail($id);
+        $students = $exam->students()->with('answers')->orderBy('total_score', 'desc')->orderBy('id')->get();
         $totalStudents = $students->count();
 
         if ($totalStudents < 2) {
@@ -202,47 +204,53 @@ class TestAnalysisController extends Controller
         $ua = $students->take($topCount);
         $la = $students->reverse()->take($topCount);
 
-        $ua->each(function ($s) { $s->group = 'UA'; });
-        $la->each(function ($s) { $s->group = 'LA'; });
-
         $uaTotal = $ua->count();
         $laTotal = $la->count();
 
-        $exam->analysis()->delete();
+        DB::transaction(function () use ($exam, $students, $ua, $la, $uaTotal, $laTotal) {
+            $exam->analysis()->delete();
 
-        foreach ($exam->items as $item) {
-            $uaChoices = $this->getItemChoices($item, $ua);
-            $laChoices = $this->getItemChoices($item, $la);
+            // Persist the group membership and rank so the analysis can be audited later.
+            foreach ($students->values() as $index => $student) {
+                $student->update(['group' => null, 'rank' => $index + 1]);
+            }
+            foreach ($ua as $student) {
+                $student->update(['group' => 'UA']);
+            }
+            foreach ($la as $student) {
+                $student->update(['group' => 'LA']);
+            }
 
-            $uaCorrect = $uaChoices[$item->correct_answer] ?? 0;
-            $laCorrect = $laChoices[$item->correct_answer] ?? 0;
+            foreach ($exam->items as $item) {
+                $uaChoices = $this->getItemChoices($item, $ua);
+                $laChoices = $this->getItemChoices($item, $la);
 
-            $uaProp = $uaTotal > 0 ? $uaCorrect / $uaTotal : 0;
-            $laProp = $laTotal > 0 ? $laCorrect / $laTotal : 0;
-            $df = ($uaProp + $laProp) / 2;
-            $ds = $uaProp - $laProp;
+                $uaCorrect = $this->countCorrect($item, $ua);
+                $laCorrect = $this->countCorrect($item, $la);
 
-            $difficultyLevel = $this->getDifficultyLevel($df);
-            $discriminationLevel = $this->getDiscriminationLevel($ds);
-            $action = $this->getAction($df, $ds);
+                $uaProp = $uaTotal > 0 ? $uaCorrect / $uaTotal : 0;
+                $laProp = $laTotal > 0 ? $laCorrect / $laTotal : 0;
+                $df = ($uaProp + $laProp) / 2;
+                $ds = $uaProp - $laProp;
 
-            TestItemAnalysis::create([
-                'test_exam_id' => $exam->id,
-                'test_item_id' => $item->id,
-                'ua_correct' => $uaCorrect, 'la_correct' => $laCorrect,
-                'ua_total' => $uaTotal, 'la_total' => $laTotal,
-                'ua_proportion' => $uaProp, 'la_proportion' => $laProp,
-                'difficulty_index' => round($df, 4),
-                'discrimination_index' => round($ds, 4),
-                'difficulty_level' => $difficultyLevel,
-                'discrimination_level' => $discriminationLevel,
-                'action' => $action,
-                'upper_choices' => $uaChoices,
-                'lower_choices' => $laChoices,
-            ]);
-        }
+                TestItemAnalysis::create([
+                    'test_exam_id' => $exam->id,
+                    'test_item_id' => $item->id,
+                    'ua_correct' => $uaCorrect, 'la_correct' => $laCorrect,
+                    'ua_total' => $uaTotal, 'la_total' => $laTotal,
+                    'ua_proportion' => $uaProp, 'la_proportion' => $laProp,
+                    'difficulty_index' => round($df, 4),
+                    'discrimination_index' => round($ds, 4),
+                    'difficulty_level' => $this->getDifficultyLevel($df),
+                    'discrimination_level' => $this->getDiscriminationLevel($ds),
+                    'action' => $this->getAction($df, $ds),
+                    'upper_choices' => $uaChoices,
+                    'lower_choices' => $laChoices,
+                ]);
+            }
+        }, 3);
 
-        return $this->success($exam->load(['items', 'analysis.item']), 'Analysis complete');
+        return $this->success($exam->load(['items', 'analysis.item', 'students']), 'Analysis complete');
     }
 
     public function getAnalysis($id)
@@ -293,20 +301,42 @@ class TestAnalysisController extends Controller
     {
         $itemType = $item->item_type ?? self::ITEM_TYPE_MC;
         $customOptions = $item->options ?? null;
-        $options = $this->getOptions($itemType, $customOptions);
 
-        $choices = [];
-        foreach ($options as $opt) {
-            $choices[$opt] = 0;
+        if ($itemType === self::ITEM_TYPE_ID) {
+            $choices = ['Correct' => 0, 'Wrong' => 0];
+            foreach ($studentsOrGroup as $student) {
+                $answer = $student->answers->firstWhere('test_item_id', $item->id);
+                if ($answer === null) {
+                    continue;
+                }
+                $choices[$answer->is_correct ? 'Correct' : 'Wrong']++;
+            }
+
+            return $choices;
         }
 
-        foreach ($studentsOrGroup as $s) {
-            $answer = $s->answers->where('test_item_id', $item->id)->first();
+        $choices = [];
+        foreach ($this->getOptions($itemType, $customOptions) as $option) {
+            $choices[$option] = 0;
+        }
+
+        foreach ($studentsOrGroup as $student) {
+            $answer = $student->answers->firstWhere('test_item_id', $item->id);
             if ($answer && isset($choices[$answer->answer])) {
                 $choices[$answer->answer]++;
             }
         }
+
         return $choices;
+    }
+
+    private function countCorrect($item, $studentsOrGroup): int
+    {
+        return $studentsOrGroup->filter(function ($student) use ($item) {
+            $answer = $student->answers->firstWhere('test_item_id', $item->id);
+
+            return $answer !== null && (bool) $answer->is_correct;
+        })->count();
     }
 
     public function getOptions($itemType, $customOptions = null)

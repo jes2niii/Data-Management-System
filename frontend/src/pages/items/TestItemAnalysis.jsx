@@ -61,8 +61,8 @@ export default function TestItemAnalysis() {
   })
 
   const analyzeMutation = useMutation({
-    mutationFn: () => api.post(`/test-exams/${selectedExam?.id}/analyze`),
-    onSuccess: () => { toast.success("Analysis complete"); queryClient.invalidateQueries({ queryKey: ["test-exams"] }); queryClient.invalidateQueries({ queryKey: ["test-analysis", selectedExam?.id] }) },
+    mutationFn: (id) => api.post(`/test-exams/${id}/analyze`),
+    onSuccess: (_, id) => { toast.success("Analysis complete"); queryClient.invalidateQueries({ queryKey: ["test-exams"] }); queryClient.invalidateQueries({ queryKey: ["test-analysis", id] }) },
     onError: (err) => toast.error(err.response?.data?.message || "Failed"),
   })
 
@@ -87,6 +87,24 @@ export default function TestItemAnalysis() {
     const answers = (fullExam.items || []).map(item => ({ item_id: item.id, answer: "" }))
     setStudentForm([{ name: "", answers }])
     setStudentDialogOpen(true)
+  }
+
+  const openExamEditor = async (exam) => {
+    try {
+      const { data: { data: current } } = await api.get(`/test-exams/${exam.id}`)
+      const locked = (current.students?.length || 0) > 0 || current.has_analysis
+      setEditingExamId(current.id)
+      setExamForm({
+        title: current.title, description: current.description || "", subject: current.subject || "",
+        items: locked ? null : (current.items || []).map((item) => ({
+          id: item.id, item_number: item.item_number, question: item.question || "",
+          correct_answer: item.correct_answer || "", item_type: item.item_type || "multiple_choice", options: item.options || null,
+        })),
+      })
+      setEditExamOpen(true)
+    } catch {
+      toast.error("Could not load the exam. No edits were made.")
+    }
   }
 
   const addStudentRow = () => {
@@ -216,10 +234,10 @@ export default function TestItemAnalysis() {
                     <TableCell>{e.has_analysis ? <Badge variant="success">Yes</Badge> : <Badge variant="outline">No</Badge>}</TableCell>
                     <TableCell>
                       <div className="flex gap-1 flex-wrap">
-                        <Button variant="ghost" size="icon" onClick={async () => { setEditingExamId(e.id); const res = await api.get(`/test-exams/${e.id}`); const ex = res.data?.data; setExamForm({ title: ex.title, description: ex.description || "", subject: ex.subject || "", items: (ex.items || []).map(it => ({ id: it.id, item_number: it.item_number, question: it.question || "", correct_answer: it.correct_answer || "", item_type: it.item_type || "multiple_choice", options: it.options || null })) }); setEditExamOpen(true) }} title="Edit"><Pencil className="h-4 w-4" /></Button>
+                         <Button variant="ghost" size="icon" onClick={() => openExamEditor(e)} title="Edit"><Pencil className="h-4 w-4" /></Button>
                         <Button variant="outline" size="sm" onClick={() => openStudentForm(e)}><Users className="mr-1 h-3 w-3" /> Students</Button>
                         {e.students_count >= 2 && (
-                          <Button variant="outline" size="sm" onClick={() => { setSelectedExam(e); analyzeMutation.mutate() }} disabled={analyzeMutation.isPending}>
+                           <Button variant="outline" size="sm" onClick={() => analyzeMutation.mutate(e.id)} disabled={analyzeMutation.isPending}>
                             <Play className="mr-1 h-3 w-3" /> Analyze
                           </Button>
                         )}
@@ -278,8 +296,9 @@ export default function TestItemAnalysis() {
             <Input placeholder="Title" value={examForm.title} onChange={e => setExamForm({ ...examForm, title: e.target.value })} />
             <Input placeholder="Subject" value={examForm.subject} onChange={e => setExamForm({ ...examForm, subject: e.target.value })} />
             <Input placeholder="Description" value={examForm.description} onChange={e => setExamForm({ ...examForm, description: e.target.value })} />
-            <div className="flex justify-between items-center"><Label className="font-semibold">Items</Label><Button size="sm" variant="outline" onClick={addItem}><Plus className="mr-1 h-3 w-3" /> Add</Button></div>
-            {examForm.items.map((it, i) => (
+             {examForm.items === null ? <p role="status" className="text-sm text-muted-foreground">Items are locked because scores or analysis have been recorded.</p> :
+               <div className="flex justify-between items-center"><Label className="font-semibold">Items</Label><Button size="sm" variant="outline" onClick={addItem}><Plus className="mr-1 h-3 w-3" /> Add</Button></div>}
+             {examForm.items?.map((it, i) => (
               <div key={i} className="flex gap-2 items-center border rounded p-2 flex-wrap">
                 <span className="text-xs text-muted-foreground w-12">{i + 1}.</span>
                 <Input className="flex-1 min-w-[150px]" value={it.question} placeholder="Question" onChange={e => { const its = [...examForm.items]; its[i].question = e.target.value; setExamForm({ ...examForm, items: its }) }} />
@@ -298,7 +317,10 @@ export default function TestItemAnalysis() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditExamOpen(false)}>Cancel</Button>
-            <Button disabled={!examForm.title || examMutation.isPending} onClick={() => examMutation.mutate(examForm)}>Update</Button>
+             <Button disabled={!examForm.title || examMutation.isPending} onClick={() => {
+               const { items, ...fields } = examForm
+               examMutation.mutate(items ? { ...fields, items } : fields)
+             }}>Update</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -25,8 +25,8 @@ class AuthController extends Controller
                 return $this->error('Invalid credentials', 401);
             }
 
-            if ($user->is_disabled) {
-                return $this->error('Account is disabled', 403);
+            if (!$user->canSignIn()) {
+                return $this->error('Account is not active', 403);
             }
 
             if (Hash::needsRehash($user->password)) {
@@ -97,7 +97,7 @@ class AuthController extends Controller
 
         $user = DB::transaction(function () use ($data, $user, $request) {
             $user = User::lockForUpdate()->findOrFail($user->id);
-            abort_if($user->is_disabled, 403);
+            abort_unless($user->canSignIn(), 403);
             if ($request->filled('password')) {
                 if (!Hash::check($request->current_password, $user->password)) {
                     throw ValidationException::withMessages(['current_password' => 'The current password is incorrect.']);

@@ -203,6 +203,7 @@ Route::middleware(['auth:sanctum', 'account.enabled'])->group(function () use ($
 
     // Attendance
     Route::get('/attendances', [AttendanceController::class, 'index'])->middleware('permission:employees.read');
+    Route::get('/attendances/recording', [AttendanceController::class, 'recording'])->middleware('permission:employees.read');
     Route::post('/attendances', [AttendanceController::class, 'store'])->middleware(['permission:employees.create', 'permission:employees.update']);
     Route::put('/attendances/{attendance}', [AttendanceController::class, 'update'])->middleware('permission:employees.update');
     Route::delete('/attendances/{attendance}', [AttendanceController::class, 'destroy'])->middleware('permission:employees.delete');

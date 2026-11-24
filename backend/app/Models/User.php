@@ -12,6 +12,8 @@ class User extends Authenticatable
 {
     use HasFactory, Notifiable, HasApiTokens, SoftDeletes;
 
+    protected $attributes = ['status' => 'active', 'is_disabled' => false];
+
     protected $fillable = [
         'name', 'email', 'password', 'username', 'photo', 'position',
         'department_id', 'phone', 'address', 'gender', 'birthdate',
@@ -55,6 +57,11 @@ class User extends Authenticatable
     public function isSuperAdmin(): bool
     {
         return $this->role?->name === Role::SUPER_ADMIN;
+    }
+
+    public function canSignIn(): bool
+    {
+        return $this->status === 'active' && !$this->is_disabled;
     }
 
     public function hasPermission(string $module, string $action): bool

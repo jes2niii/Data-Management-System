@@ -78,6 +78,10 @@ class FolderController extends Controller
             'is_public' => 'boolean',
         ]);
 
+        if ($request->has('parent_id') && $request->parent_id !== null) {
+            $this->assertValidParent($folder, (int) $request->parent_id);
+        }
+
         $folder->update($request->only(['name', 'parent_id', 'category', 'is_public']));
 
         return $this->success($folder->load('creator'), 'Folder updated');
@@ -86,9 +90,29 @@ class FolderController extends Controller
     public function destroy($id)
     {
         $folder = Folder::findOrFail($id);
+
+        abort_if($folder->children()->exists(), 409, 'Move or delete the subfolders before deleting this folder.');
+        abort_if($folder->documents()->exists(), 409, 'Move or delete the documents before deleting this folder.');
+
         $folder->delete();
 
         return $this->success(null, 'Folder deleted');
+    }
+
+    private function assertValidParent(Folder $folder, int $parentId): void
+    {
+        abort_if($parentId === (int) $folder->id, 422, 'A folder cannot be its own parent.');
+
+        $seen = [];
+        $cursor = Folder::find($parentId);
+        while ($cursor !== null) {
+            abort_if((int) $cursor->id === (int) $folder->id, 422, 'A folder cannot be moved beneath one of its own subfolders.');
+            if (isset($seen[$cursor->id])) {
+                break; // A pre-existing cycle elsewhere already makes the tree invalid.
+            }
+            $seen[$cursor->id] = true;
+            $cursor = $cursor->parent_id ? Folder::find($cursor->parent_id) : null;
+        }
     }
 
     public function tree()

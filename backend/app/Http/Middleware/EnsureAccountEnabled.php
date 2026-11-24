@@ -10,8 +10,8 @@ class EnsureAccountEnabled
 {
     public function handle(Request $request, Closure $next): Response
     {
-        if ($request->user()?->is_disabled) {
-            return response()->json(['message' => 'Account is disabled.'], 403);
+        if (!$request->user()?->canSignIn()) {
+            return response()->json(['message' => 'Account is not active.'], 403);
         }
 
         return $next($request);

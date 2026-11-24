@@ -80,9 +80,8 @@ class BookInventoryController extends Controller
         return $this->success($book);
     }
 
-    public function update(Request $request, $id)
+    public function update(Request $request, \App\Services\StageReplacement $replacement, $id)
     {
-        $book = BookInventory::findOrFail($id);
         $request->validate([
             'title' => 'sometimes|required|string|max:255',
             'book_category_id' => 'nullable|exists:book_categories,id',
@@ -96,34 +95,36 @@ class BookInventoryController extends Controller
             'year' => 'nullable|string|max:10',
             'edition' => 'nullable|string|max:50',
             'is_active' => 'nullable|boolean',
+            'remove_file' => 'sometimes|boolean',
         ]);
 
         $data = $request->only(['title','book_category_id','references','alternative_references','link','description','author','publisher','year','edition','is_active']);
         $data['updated_by'] = $request->user()->id;
 
-        if ($request->hasFile('file')) {
-            // Delete old file
-            if ($book->file_path) {
-                Storage::disk('public')->delete($book->file_path);
+        $file = $request->file('file');
+        $remove = $request->boolean('remove_file');
+        if ($file && $remove) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['remove_file' => 'Choose either removal or replacement, not both.']);
+        }
+        $book = $replacement->commit($file, 'books', function (?string $path) use ($id, $data, $file, $remove, $replacement) {
+            $book = BookInventory::lockForUpdate()->findOrFail($id);
+            $previous = $book->file_path;
+            if ($path !== null) {
+                $data['file_path'] = $path;
+                $data['file_name'] = $file->getClientOriginalName();
+                $data['file_type'] = $file->getClientOriginalExtension();
+                $data['file_size'] = $file->getSize();
+            } elseif ($remove) {
+                $data = array_merge($data, array_fill_keys(['file_path', 'file_name', 'file_type', 'file_size'], null));
             }
-            $file = $request->file('file');
-            $path = $file->store('books', 'public');
-            $data['file_path'] = $path;
-            $data['file_name'] = $file->getClientOriginalName();
-            $data['file_type'] = $file->getClientOriginalExtension();
-            $data['file_size'] = $file->getSize();
-        }
+            $book->update($data);
+            if (($path !== null || $remove) && $previous !== null
+                && !BookInventory::withTrashed()->whereKeyNot($book->id)->where('file_path', $previous)->exists()) {
+                $replacement->retainAfterCommit($previous, 'books');
+            }
 
-        // Handle link/file removal if requested
-        if ($request->has('remove_file') && $request->boolean('remove_file')) {
-            if ($book->file_path) Storage::disk('public')->delete($book->file_path);
-            $data['file_path'] = null;
-            $data['file_name'] = null;
-            $data['file_type'] = null;
-            $data['file_size'] = null;
-        }
-
-        $book->update($data);
+            return $book;
+        });
         return $this->success($book->load(['category','creator']), 'Book updated');
     }
 

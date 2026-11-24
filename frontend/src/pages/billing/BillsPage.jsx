@@ -73,7 +73,7 @@ export default function BillsPage() {
   })
 
   const markAsPaidMutation = useMutation({
-    mutationFn: (id) => api.post(`/bills/${id}/mark-paid`),
+    mutationFn: (id) => api.post(`/bills/${id}/mark-paid`, { payment_date: format(new Date(), "yyyy-MM-dd") }),
     onSuccess: () => {
       toast.success("Bill marked as paid")
       queryClient.invalidateQueries({ queryKey: ["bills"] })

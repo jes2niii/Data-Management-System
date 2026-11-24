@@ -33,7 +33,7 @@ class UserUpdateRequest extends FormRequest
             'employment_type' => 'nullable|string|max:50',
             'emergency_contact' => 'nullable|json',
             'government_ids' => 'nullable|json',
-            'status' => 'nullable|string|in:active,inactive,suspended',
+            'status' => 'sometimes|required|string|in:active,inactive,suspended',
             'photo' => 'nullable|image|max:2048',
         ];
     }

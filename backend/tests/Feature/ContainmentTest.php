@@ -11,12 +11,17 @@ use App\Models\Employee;
 use App\Models\Folder;
 use App\Models\Form;
 use App\Models\FormCategory;
+use App\Models\InventoryBatch;
 use App\Models\InventoryItem;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\Setting;
+use App\Models\Subscription;
 use App\Models\SurveyForm;
 use App\Models\TestExam;
+use App\Models\Training;
+use App\Models\TrainingDetail;
+use App\Models\TrainingMonitoring;
 use App\Models\User;
 use Illuminate\Database\Connection;
 use Illuminate\Http\UploadedFile;
@@ -58,10 +63,15 @@ class ContainmentTest extends TestCase
         $tables = [
             '073921', '080000', '080100', '080200', '080300', '080400', '080500',
             '080800', '080900', '081000', '081100', '081200', '081300', '081400', '081500', '081700',
-            '081900', '082300', '082400', '082500', '082600', '083100', '083200', '083400', '083500',
-            '085800', '085900', '086000', '086100',
+            '081900', '082300', '082400', '082500', '082600', '083100', '083200', '083400', '083500', '083600',
+            '084000', '085000', '085100', '085200', '085300', '085400', '085500', '085600', '085700',
+            '085800', '085900', '086000', '086100', '086200',
         ];
         foreach ($tables as $time) {
+            if ($time === '083400') {
+                (require database_path('migrations/2026_08_07_083300_add_survey_sections.php'))->up();
+                (require database_path('migrations/2026_08_07_083300_create_attendances.php'))->up();
+            }
             if ($time === '082500') {
                 Schema::table('forms', fn ($table) => $table->dropIndex(['category']));
             }
@@ -260,6 +270,126 @@ class ContainmentTest extends TestCase
         $user->update(['is_disabled' => true]);
 
         $this->withToken($token)->getJson('/api/me')->assertForbidden();
+    }
+
+    public function test_suspension_revokes_tokens_and_blocks_login_without_disabling_the_flag(): void
+    {
+        $admin = $this->account([], Role::SUPER_ADMIN);
+        $user = $this->account();
+        $password = Str::random(24);
+        $user->update(['password' => $password]);
+        $token = $user->createToken('test')->accessToken;
+        Sanctum::actingAs($admin);
+
+        $this->putJson("/api/users/{$admin->id}", ['status' => 'suspended'])->assertConflict();
+        $this->putJson("/api/users/{$user->id}", ['status' => 'suspended'])->assertOk();
+        $this->assertDatabaseMissing('personal_access_tokens', ['id' => $token->id]);
+        $this->assertFalse($user->fresh()->is_disabled);
+        $this->postJson('/api/login', ['email' => $user->email, 'password' => $password])->assertForbidden();
+    }
+
+    public function test_department_directory_does_not_disclose_compensation(): void
+    {
+        $user = $this->account(['departments.read']);
+        $user->update(['salary' => 1234.56, 'government_ids' => ['test' => 'fixture']]);
+        Sanctum::actingAs($user);
+        $this->getJson('/api/departments')->assertOk()
+            ->assertJsonPath('data.0.users.0.name', $user->name)
+            ->assertJsonMissingPath('data.0.users.0.salary')
+            ->assertJsonMissingPath('data.0.users.0.government_ids');
+    }
+
+    public function test_attendance_snapshot_and_partial_updates_preserve_existing_data_and_detect_stale_edits(): void
+    {
+        $user = $this->account(['employees.read', 'employees.create', 'employees.update']);
+        $employee = Employee::create(['employee_id' => 'ROLL-1', 'full_name' => 'Fixture Staff', 'position' => 'Fixture',
+            'department_id' => $user->department_id]);
+        Sanctum::actingAs($user);
+        $key = ['employee_id' => $employee->id, 'date' => '2026-08-01', 'session' => 'morning'];
+        $this->postJson('/api/attendances', ['records' => [$key + ['time_in' => '08:00', 'hours_worked' => 4]]])->assertCreated();
+        $snapshot = $this->getJson('/api/attendances/recording?date=2026-08-01')->assertOk();
+        $version = $snapshot->json('data.records.0.expected_version');
+        $this->assertIsString($version);
+        $this->postJson('/api/attendances', ['records' => [$key + ['expected_version' => $version, 'remarks' => 'A correction']]])
+            ->assertCreated();
+        $this->postJson('/api/attendances', ['records' => [
+            array_replace($key, ['session' => 'afternoon']) + ['expected_version' => null, 'remarks' => 'New session'],
+            $key + ['expected_version' => $version, 'time_in' => null],
+        ]])->assertConflict();
+        $this->assertDatabaseCount('attendances', 1);
+        $record = \App\Models\Attendance::sole();
+        $this->assertStringStartsWith('08:00', $record->time_in);
+        $this->assertSame(4, $record->hours_worked);
+        $this->assertSame('A correction', $record->remarks);
+        $this->postJson('/api/attendances', ['records' => [$key, $key]])->assertUnprocessable();
+    }
+
+    public function test_survey_and_exam_structure_cannot_erase_existing_answers(): void
+    {
+        $editor = $this->account(['items.read', 'items.update']);
+        Sanctum::actingAs($editor);
+        $survey = SurveyForm::create(['title' => 'Preserve survey', 'status' => 'active']);
+        $section = $survey->sections()->create(['title' => 'Questions']);
+        $question = $survey->questions()->create(['survey_section_id' => $section->id, 'question' => 'Sample', 'type' => 'rating']);
+        $surveyUrl = "/api/surveys/{$survey->id}";
+        $this->postJson($surveyUrl.'/responses', ['answers' => [['question_id' => $question->id, 'score' => 3]]])->assertCreated();
+        $this->putJson($surveyUrl, ['title' => 'Must not change', 'sections' => [[
+            'id' => $section->id, 'title' => 'Questions', 'questions' => [['id' => $question->id, 'question' => 'Changed']],
+        ]]])->assertConflict();
+        $this->assertSame('Preserve survey', $survey->fresh()->title);
+        $this->putJson($surveyUrl, ['status' => 'closed'])->assertOk();
+        $this->postJson($surveyUrl.'/responses', ['answers' => [['question_id' => $question->id, 'score' => 5]]])->assertConflict();
+        $this->assertDatabaseCount('survey_answers', 1);
+
+        $exam = TestExam::create(['title' => 'Preserve exam']);
+        $item = $exam->items()->create(['item_number' => 1, 'correct_answer' => 'A']);
+        $examUrl = "/api/test-exams/{$exam->id}";
+        $this->postJson($examUrl.'/students', ['students' => [
+            ['name' => 'Fixture Student', 'answers' => [['item_id' => $item->id, 'answer' => 'A']]],
+        ]])->assertCreated();
+        $this->putJson($examUrl, ['items' => [['id' => $item->id, 'item_number' => 1, 'correct_answer' => 'B']]])->assertConflict();
+        $this->assertSame('A', $item->fresh()->correct_answer);
+        $this->putJson($examUrl, ['title' => 'Updated exam title'])->assertOk();
+        $this->assertDatabaseCount('test_answers', 1);
+    }
+
+    public function test_failed_form_replacement_retains_original_bytes_and_removes_the_staged_upload(): void
+    {
+        Storage::fake('public')->put('forms/previous.txt', 'Previously saved content');
+        $user = $this->account(['forms.update']);
+        $form = Form::create(['name' => 'Fixture form', 'created_by' => $user->id, 'file_path' => 'forms/previous.txt']);
+        Sanctum::actingAs($user);
+        Form::updating(fn () => throw new \RuntimeException('Fixture commit failure'));
+
+        $this->post("/api/forms/{$form->id}", [
+            '_method' => 'PUT', 'file' => UploadedFile::fake()->createWithContent('new.txt', 'replacement content'),
+        ], ['Accept' => 'application/json'])->assertServerError();
+        $this->assertSame('forms/previous.txt', $form->fresh()->file_path);
+        $this->assertSame(['forms/previous.txt'], Storage::disk('public')->allFiles('forms'));
+    }
+
+    public function test_successful_form_replacement_archives_verified_bytes_after_commit(): void
+    {
+        Storage::fake('public')->put('forms/previous.txt', 'Prior file');
+        Storage::fake('local');
+        $user = $this->account(['forms.update']);
+        $form = Form::create(['name' => 'Fixture form', 'created_by' => $user->id, 'file_path' => 'forms/previous.txt']);
+        Sanctum::actingAs($user);
+        $result = $this->post("/api/forms/{$form->id}", [
+            '_method' => 'PUT', 'file' => UploadedFile::fake()->createWithContent('new.txt', 'Replacement file'),
+        ], ['Accept' => 'application/json'])->assertOk()->assertJsonPath('data.version', 2);
+        $current = $result->json('data.file_path');
+        $this->assertSame('Replacement file', Storage::disk('public')->get($current));
+        if (DB::transactionLevel() > 0) {
+            // The CI MySQL fixture deliberately rolls back this outer transaction.
+            Storage::disk('public')->assertExists('forms/previous.txt');
+            $this->assertSame([], Storage::disk('local')->allFiles('recovery'));
+        } else {
+            Storage::disk('public')->assertMissing('forms/previous.txt');
+            $archived = Storage::disk('local')->allFiles('recovery');
+            $this->assertCount(1, $archived);
+            $this->assertSame('Prior file', Storage::disk('local')->get($archived[0]));
+        }
     }
 
     public function test_password_change_requires_current_password_and_revokes_tokens(): void
@@ -483,6 +613,176 @@ class ContainmentTest extends TestCase
         $this->assertDatabaseCount('test_answers', 4);
         $this->assertDatabaseHas('test_students', ['name' => 'Student One', 'items_correct' => 1, 'percentage' => 50]);
         $this->assertDatabaseHas('test_answers', ['test_item_id' => $blankKey->id, 'is_correct' => false]);
+    }
+
+    public function test_inventory_adjustments_keep_batch_totals_and_the_ledger_in_sync(): void
+    {
+        $user = $this->account(['inventory.read', 'inventory.create', 'inventory.update']);
+        Sanctum::actingAs($user);
+        $item = $this->postJson('/api/inventory', [
+            'name' => 'Bond paper', 'quantity' => 10, 'unit_cost' => 5, 'reorder_point' => 2,
+        ])->assertCreated()->json('data');
+        $this->assertSame(10.0, (float) InventoryBatch::where('inventory_item_id', $item['id'])->sum('remaining_quantity'));
+
+        $adjust = fn (array $payload) => $this->postJson("/api/inventory/{$item['id']}/adjust", $payload);
+        $batchTotal = fn () => (float) InventoryBatch::where('inventory_item_id', $item['id'])->sum('remaining_quantity');
+
+        $adjust(['type' => 'adjustment', 'quantity' => 6])->assertOk();
+        $this->assertSame(6.0, (float) InventoryItem::find($item['id'])->quantity);
+        $this->assertSame(6.0, $batchTotal());
+
+        $adjust(['type' => 'out', 'quantity' => 2])->assertOk();
+        $this->assertSame(4.0, $batchTotal());
+
+        $adjust(['type' => 'adjustment', 'quantity' => 8])->assertOk();
+        $this->assertSame(8.0, $batchTotal());
+        $this->assertSame(8.0, (float) InventoryItem::find($item['id'])->quantity);
+
+        $adjust(['type' => 'out', 'quantity' => 99])->assertStatus(400);
+        $this->assertSame(8.0, (float) InventoryItem::find($item['id'])->quantity);
+        $this->assertSame(8.0, $batchTotal());
+
+        $this->putJson("/api/inventory/{$item['id']}", ['quantity' => 3, 'unit_cost' => 5])->assertOk();
+        $this->assertSame(3.0, $batchTotal());
+        $this->assertSame(5, (int) DB::table('inventory_transactions')->where('inventory_item_id', $item['id'])->count());
+    }
+
+    public function test_subscription_renewal_is_idempotent_per_cycle_and_monthly_equivalents_respect_frequency(): void
+    {
+        $user = $this->account(['bills.read', 'bills.update']);
+        $subscription = Subscription::create([
+            'name' => 'Field connection', 'amount' => 120, 'billing_cycle' => 'fortnightly',
+            'billing_frequency' => 1, 'next_billing_date' => '2026-08-01', 'status' => 'active',
+            'is_variable_amount' => true, 'created_by' => $user->id,
+        ]);
+        Sanctum::actingAs($user);
+
+        $renew = fn () => $this->postJson("/api/subscriptions/{$subscription->id}/renew", [
+            'expected_billing_date' => '2026-08-01',
+        ]);
+        $renew()->assertOk();
+        $this->assertSame('2026-08-15', $subscription->fresh()->next_billing_date->toDateString());
+        $renew()->assertStatus(409);
+        $this->assertSame('2026-08-15', $subscription->fresh()->next_billing_date->toDateString());
+        $this->assertSame(1, $subscription->billings()->count());
+
+        Subscription::create([
+            'name' => 'Annual plan', 'amount' => 1200, 'billing_cycle' => 'yearly',
+            'billing_frequency' => 1, 'next_billing_date' => '2026-08-01', 'status' => 'active',
+        ]);
+        $this->getJson('/api/subscriptions/stats')->assertOk()
+            ->assertJsonPath('data.total_monthly_equivalent', 360);
+    }
+
+    public function test_training_records_reject_cross_training_packages_and_exports_apply_filters_safely(): void
+    {
+        $user = $this->account(['training_monitorings.read', 'training_monitorings.create', 'training_monitorings.export']);
+        $first = Training::create(['name' => 'Course A', 'price' => 100]);
+        $second = Training::create(['name' => 'Course B', 'price' => 200]);
+        $package = TrainingDetail::create(['training_id' => $second->id, 'title' => 'Package B', 'price' => 150]);
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/training-monitorings', [
+            'name' => 'Mismatched', 'training_id' => $first->id, 'training_detail_id' => $package->id,
+        ])->assertUnprocessable()->assertJsonValidationErrors('training_detail_id');
+        $this->assertDatabaseMissing('training_monitorings', ['name' => 'Mismatched']);
+
+        $this->postJson('/api/training-monitorings', [
+            'name' => 'Package only', 'training_detail_id' => $package->id, 'downpayment' => 50,
+        ])->assertCreated()->assertJsonPath('data.training_id', $second->id)
+            ->assertJsonPath('data.training_course', 'Course B')
+            ->assertJsonPath('data.training_fee', '150.00');
+
+        TrainingMonitoring::create(['name' => '=SUM(1)', 'training_course' => 'Course A', 'training_fee' => 10]);
+        $csv = $this->get('/api/training-monitorings/export/csv?training_course=Course%20A')
+            ->assertOk()->streamedContent();
+        $this->assertStringContainsString('Course A', $csv);
+        $this->assertStringNotContainsString('Package only', $csv);
+        $this->assertStringContainsString("'=SUM(1)", $csv);
+    }
+
+    public function test_folders_reject_cycles_and_non_empty_deletion(): void
+    {
+        $user = $this->account(['folders.read', 'folders.create', 'folders.update', 'folders.delete']);
+        $parent = Folder::create(['name' => 'Parent', 'category' => 'general', 'created_by' => $user->id]);
+        $child = Folder::create(['name' => 'Child', 'parent_id' => $parent->id, 'category' => 'general', 'created_by' => $user->id]);
+        $empty = Folder::create(['name' => 'Empty', 'category' => 'general', 'created_by' => $user->id]);
+        Sanctum::actingAs($user);
+
+        $this->putJson("/api/folders/{$parent->id}", ['parent_id' => $parent->id])->assertStatus(422);
+        $this->putJson("/api/folders/{$parent->id}", ['parent_id' => $child->id])->assertStatus(422);
+        $this->putJson("/api/folders/{$empty->id}", ['parent_id' => $parent->id])->assertOk();
+
+        $this->document($user, 'Inside child', $child);
+        $this->deleteJson("/api/folders/{$child->id}")->assertStatus(409);
+        $this->assertDatabaseHas('folders', ['id' => $child->id, 'deleted_at' => null]);
+        $this->deleteJson("/api/folders/{$parent->id}")->assertStatus(409);
+        $this->deleteJson("/api/folders/{$empty->id}")->assertOk();
+    }
+
+    public function test_a_locked_document_cannot_be_changed_by_another_editor(): void
+    {
+        $owner = $this->account(['documents.read', 'documents.update']);
+        $editor = $this->account(['documents.read', 'documents.update', 'documents.delete']);
+        $folder = Folder::create(['name' => 'Locks', 'category' => 'general', 'created_by' => $owner->id]);
+        $document = $this->document($owner, 'Controlled', $folder);
+
+        Sanctum::actingAs($owner);
+        $this->postJson("/api/documents/{$document->id}/lock")->assertOk();
+        Sanctum::actingAs($editor);
+        $this->putJson("/api/documents/{$document->id}", ['name' => 'Renamed'])->assertStatus(423);
+        $this->deleteJson("/api/documents/{$document->id}")->assertStatus(423);
+        $this->getJson("/api/documents/{$document->id}")->assertOk();
+        $this->assertSame('Controlled', $document->fresh()->name);
+
+        Sanctum::actingAs($owner);
+        $this->putJson("/api/documents/{$document->id}", ['name' => 'Renamed'])->assertOk();
+    }
+
+    public function test_marking_a_bill_paid_defaults_the_payment_date_and_stays_idempotent(): void
+    {
+        $user = $this->account(['bills.read', 'bills.update']);
+        $category = BillCategory::create(['name' => 'Facilities']);
+        $bill = Bill::create(['name' => 'Rent', 'bill_category_id' => $category->id, 'amount' => 100,
+            'billing_date' => '2026-08-01', 'due_date' => '2026-08-31', 'status' => 'pending', 'created_by' => $user->id]);
+        Sanctum::actingAs($user);
+
+        $this->postJson("/api/bills/{$bill->id}/mark-paid")->assertOk();
+        $this->assertSame(now()->toDateString(), $bill->fresh()->payment_date->toDateString());
+        $this->postJson("/api/bills/{$bill->id}/mark-paid")->assertOk();
+        $this->assertSame(now()->toDateString(), $bill->fresh()->payment_date->toDateString());
+        $this->assertSame('paid', $bill->fresh()->status);
+    }
+
+    public function test_exam_analysis_persists_groups_and_counts_identification_answers(): void
+    {
+        Sanctum::actingAs($this->account(['items.read', 'items.update']));
+        $exam = TestExam::create(['title' => 'Identification exam']);
+        $item = $exam->items()->create([
+            'item_number' => 1, 'correct_answer' => 'Manila', 'item_type' => 'identification',
+        ]);
+        $this->postJson("/api/test-exams/{$exam->id}/students", ['students' => [
+            ['name' => 'Top', 'answers' => [['item_id' => $item->id, 'answer' => 'Manila']]],
+            ['name' => 'Middle', 'answers' => [['item_id' => $item->id, 'answer' => 'Cebu']]],
+            ['name' => 'Bottom', 'answers' => [['item_id' => $item->id, 'answer' => 'Davao']]],
+        ]])->assertCreated();
+
+        $this->postJson("/api/test-exams/{$exam->id}/analyze")->assertOk();
+        $this->assertSame('UA', DB::table('test_students')->where('name', 'Top')->value('group'));
+        $this->assertNull(DB::table('test_students')->where('name', 'Middle')->value('group'));
+        $this->assertSame('LA', DB::table('test_students')->where('name', 'Bottom')->value('group'));
+
+        $analysis = DB::table('test_item_analysis')->where('test_exam_id', $exam->id)->sole();
+        $this->assertSame(1, (int) $analysis->ua_correct);
+        $this->assertSame(0, (int) $analysis->la_correct);
+        $this->assertSame(['Correct' => 1, 'Wrong' => 0], json_decode($analysis->upper_choices, true));
+        $this->assertSame(['Correct' => 0, 'Wrong' => 1], json_decode($analysis->lower_choices, true));
+
+        $this->postJson("/api/test-exams/{$exam->id}/students", ['students' => [
+            ['name' => 'Late', 'answers' => [['item_id' => $item->id, 'answer' => 'Manila']]],
+        ]])->assertCreated();
+        $this->assertSame(0, DB::table('test_item_analysis')->where('test_exam_id', $exam->id)->count());
+        $this->assertNull(DB::table('test_students')->where('name', 'Top')->value('group'));
     }
 
     private function permission(string $name): Permission

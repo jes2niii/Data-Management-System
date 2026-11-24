@@ -80,6 +80,9 @@ class UserController extends Controller
                 $this->roles->checkRole($actor, Role::findOrFail($data['role_id']));
                 $this->roles->checkAdministratorRemains($user, $systemRole);
             }
+            if (isset($data['status']) && $data['status'] !== 'active') {
+                $this->roles->checkAdministratorRemains($user, $systemRole);
+            }
 
             if ($request->filled('password')) {
                 $data['password'] = Hash::make($data['password']);
@@ -90,7 +93,7 @@ class UserController extends Controller
             }
 
             $user->update($data);
-            if ($user->wasChanged(['role_id', 'department_id', 'password', 'email'])) {
+            if ($user->wasChanged(['role_id', 'department_id', 'password', 'email', 'status'])) {
                 $user->tokens()->delete();
             }
         });

@@ -155,6 +155,7 @@ class DocumentController extends Controller
 
         $document = DB::transaction(function () use ($id, $data, $request) {
             $document = $this->visibleDocuments()->lockForUpdate()->findOrFail($id);
+            $this->assertUnlockedFor($document);
             $document->update($data);
             if ($request->filled('access_type')) {
                 $document->access()->delete();
@@ -170,6 +171,7 @@ class DocumentController extends Controller
     public function destroy($id)
     {
         $document = $this->visibleDocuments()->findOrFail($id);
+        $this->assertUnlockedFor($document);
         $document->delete();
 
         return $this->success(null, 'Document moved to trash');
@@ -226,6 +228,7 @@ class DocumentController extends Controller
         try {
             $document = DB::transaction(function () use ($id, $request, $file, $path) {
                 $document = $this->visibleDocuments()->lockForUpdate()->findOrFail($id);
+                $this->assertUnlockedFor($document);
                 $newVersion = $document->version + 1;
 
                 DocumentVersion::create([
@@ -369,6 +372,7 @@ class DocumentController extends Controller
     public function archive($id)
     {
         $document = $this->visibleDocuments()->findOrFail($id);
+        $this->assertUnlockedFor($document);
         $document->update(['status' => 'archived']);
 
         return $this->success($document, 'Document archived');
@@ -377,6 +381,7 @@ class DocumentController extends Controller
     public function move(Request $request, $id)
     {
         $document = $this->visibleDocuments()->findOrFail($id);
+        $this->assertUnlockedFor($document);
 
         $request->validate([
             'folder_id' => 'nullable|exists:folders,id',
@@ -393,6 +398,13 @@ class DocumentController extends Controller
     private function visibleDocuments(): Builder
     {
         return Document::query()->visibleTo(request()->user());
+    }
+
+    private function assertUnlockedFor(Document $document): void
+    {
+        if ($document->is_locked && (int) $document->locked_by !== (int) request()->user()->id) {
+            abort(423, 'This document is locked by another user.');
+        }
     }
 
     private function documentDisk(Document $document): FilesystemAdapter

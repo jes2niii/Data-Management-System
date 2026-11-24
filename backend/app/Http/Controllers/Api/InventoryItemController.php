@@ -5,10 +5,12 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\InventoryItemStoreRequest;
 use App\Http\Requests\InventoryItemUpdateRequest;
+use App\Models\InventoryBatch;
 use App\Models\InventoryItem;
 use App\Models\InventoryTransaction;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class InventoryItemController extends Controller
 {
@@ -55,22 +57,28 @@ class InventoryItemController extends Controller
         $data['created_by'] = $request->user()->id;
         $data['updated_by'] = $request->user()->id;
         $data['unit'] = $data['unit'] ?? 'pcs';
-        $item = InventoryItem::create($data);
+        $item = DB::transaction(function () use ($data, $request) {
+            $item = InventoryItem::create($data);
 
-        // Log initial stock as transaction if quantity >0
-        if ((float)$item->quantity > 0) {
-            InventoryTransaction::create([
-                'inventory_item_id' => $item->id,
-                'type' => 'in',
-                'quantity' => $item->quantity,
-                'balance_after' => $item->quantity,
-                'unit_cost' => $item->unit_cost,
-                'reference_number' => 'INIT-'.$item->sku,
-                'notes' => 'Initial stock',
-                'created_by' => $request->user()->id,
-            ]);
-            $item->update(['last_restocked_at' => now()->toDateString()]);
-        }
+            // Log initial stock as a batch and ledger entry so totals stay in sync.
+            if ((float) $item->quantity > 0) {
+                $this->addBatch($item, (float) $item->quantity, (float) $item->unit_cost,
+                    now()->toDateString(), 'INIT-'.$item->sku, 'Initial stock', $request->user()->id);
+                InventoryTransaction::create([
+                    'inventory_item_id' => $item->id,
+                    'type' => 'in',
+                    'quantity' => $item->quantity,
+                    'balance_after' => $item->quantity,
+                    'unit_cost' => $item->unit_cost,
+                    'reference_number' => 'INIT-'.$item->sku,
+                    'notes' => 'Initial stock',
+                    'created_by' => $request->user()->id,
+                ]);
+                $item->update(['last_restocked_at' => now()->toDateString()]);
+            }
+
+            return $item;
+        }, 3);
 
         return $this->success($item->load(['category','supplier','department']), 'Inventory item created', 201);
     }
@@ -83,32 +91,42 @@ class InventoryItemController extends Controller
 
     public function update(InventoryItemUpdateRequest $request, $id)
     {
-        $item = InventoryItem::findOrFail($id);
         $data = $request->validated();
         $data['updated_by'] = $request->user()->id;
 
-        $oldQty = (float) $item->quantity;
-        $newQty = isset($data['quantity']) ? (float) $data['quantity'] : $oldQty;
+        $item = DB::transaction(function () use ($data, $request, $id) {
+            $item = InventoryItem::lockForUpdate()->findOrFail($id);
+            $oldQty = (float) $item->quantity;
+            $newQty = isset($data['quantity']) ? (float) $data['quantity'] : $oldQty;
+            $unitCost = isset($data['unit_cost']) ? (float) $data['unit_cost'] : (float) $item->unit_cost;
+            $item->update($data);
 
-        $item->update($data);
+            if (abs($oldQty - $newQty) > 0.01) {
+                $diff = $newQty - $oldQty;
+                if ($diff > 0) {
+                    $this->addBatch($item, $diff, $unitCost, now()->toDateString(),
+                        'EDIT-'.$item->id.'-'.now()->timestamp, 'Quantity adjustment via edit', $request->user()->id);
+                } else {
+                    $this->consumeBatches($item, abs($diff));
+                }
 
-        // If quantity changed, log transaction
-        if (isset($data['quantity']) && abs($oldQty - $newQty) > 0.01) {
-            $diff = $newQty - $oldQty;
-            InventoryTransaction::create([
-                'inventory_item_id' => $item->id,
-                'type' => $diff > 0 ? 'in' : 'out',
-                'quantity' => abs($diff),
-                'balance_after' => $newQty,
-                'unit_cost' => $item->unit_cost,
-                'reference_number' => 'ADJ-'.time(),
-                'notes' => 'Quantity adjustment via edit',
-                'created_by' => $request->user()->id,
-            ]);
-            if ($diff > 0) {
-                $item->update(['last_restocked_at' => now()->toDateString()]);
+                InventoryTransaction::create([
+                    'inventory_item_id' => $item->id,
+                    'type' => $diff > 0 ? 'in' : 'out',
+                    'quantity' => abs($diff),
+                    'balance_after' => $newQty,
+                    'unit_cost' => $unitCost,
+                    'reference_number' => 'ADJ-'.now()->timestamp,
+                    'notes' => 'Quantity adjustment via edit',
+                    'created_by' => $request->user()->id,
+                ]);
+                if ($diff > 0) {
+                    $item->update(['last_restocked_at' => now()->toDateString()]);
+                }
             }
-        }
+
+            return $item;
+        }, 3);
 
         return $this->success($item->load(['category','supplier','department']), 'Inventory item updated');
     }
@@ -152,7 +170,8 @@ class InventoryItemController extends Controller
             ->limit(10)
             ->get();
 
-        $lowStockItems = (clone $base)->with(['category','supplier'])->where('status','low_stock')->orWhere('status','out_of_stock')->orderBy('quantity')->limit(10)->get();
+        $lowStockItems = (clone $base)->with(['category','supplier'])
+            ->whereIn('status', ['low_stock', 'out_of_stock'])->orderBy('quantity')->limit(10)->get();
 
         $recentTransactions = InventoryTransaction::with(['item.category','creator'])
             ->orderBy('created_at','desc')->limit(10)->get();
@@ -175,7 +194,7 @@ class InventoryItemController extends Controller
 
     public function adjustStock(Request $request, $id)
     {
-        $request->validate([
+        $data = $request->validate([
             'type' => 'required|string|in:in,out,adjustment',
             'quantity' => 'required|numeric|min:0.01',
             'unit_cost' => 'nullable|numeric|min:0',
@@ -184,81 +203,106 @@ class InventoryItemController extends Controller
             'notes' => 'nullable|string|max:500',
         ]);
 
-        $item = InventoryItem::findOrFail($id);
-        $qty = (float) $request->quantity;
-        $oldQty = (float) $item->quantity;
-        $newQty = $oldQty;
-        $purchaseDate = $request->filled('purchase_date') ? $request->purchase_date : now()->toDateString();
+        $result = DB::transaction(function () use ($data, $request, $id) {
+            $item = InventoryItem::lockForUpdate()->findOrFail($id);
+            $qty = (float) $data['quantity'];
+            $oldQty = (float) $item->quantity;
+            $unitCost = array_key_exists('unit_cost', $data) && $data['unit_cost'] !== null
+                ? (float) $data['unit_cost'] : (float) $item->unit_cost;
+            $purchaseDate = !empty($data['purchase_date']) ? $data['purchase_date'] : now()->toDateString();
+            $reference = $data['reference_number'] ?? 'ADJ-'.now()->timestamp;
 
-        if ($request->type === 'in') {
-            $newQty = $oldQty + $qty;
-            // Create a batch for this purchase with its own price and date
-            \App\Models\InventoryBatch::create([
+            if ($data['type'] === 'in') {
+                $newQty = $oldQty + $qty;
+                $this->addBatch($item, $qty, $unitCost, $purchaseDate, $reference,
+                    $data['notes'] ?? 'Stock in on '.$purchaseDate, $request->user()->id);
+            } elseif ($data['type'] === 'out') {
+                abort_if($qty > $oldQty, 400, 'Insufficient stock. Available: '.$oldQty);
+                $newQty = $oldQty - $qty;
+                $this->consumeBatches($item, $qty);
+            } else { // adjustment: set the item to the exact quantity
+                $newQty = $qty;
+                if ($newQty > $oldQty) {
+                    $added = $newQty - $oldQty;
+                    $this->addBatch($item, $added, $unitCost, $purchaseDate, $reference,
+                        'Adjustment up', $request->user()->id);
+                } elseif ($newQty < $oldQty) {
+                    $this->consumeBatches($item, $oldQty - $newQty);
+                }
+            }
+
+            $item->update([
+                'quantity' => $newQty,
+                'unit_cost' => $data['unit_cost'] ?? $item->unit_cost,
+                'updated_by' => $request->user()->id,
+                'last_restocked_at' => $data['type'] === 'in' ? $purchaseDate : $item->last_restocked_at,
+            ]);
+
+            $transaction = InventoryTransaction::create([
                 'inventory_item_id' => $item->id,
-                'batch_number' => 'BATCH-'.time().'-'.rand(100,999),
-                'purchase_date' => $purchaseDate,
-                'quantity' => $qty,
-                'remaining_quantity' => $qty,
-                'unit_cost' => $request->filled('unit_cost') ? $request->unit_cost : $item->unit_cost,
-                'total_cost' => $qty * ($request->filled('unit_cost') ? $request->unit_cost : $item->unit_cost),
-                'supplier' => $item->supplier?->name,
-                'reference_number' => $request->reference_number ?? 'PO-'.time(),
-                'notes' => $request->notes ?? 'Stock in on '.$purchaseDate.' at '.($request->filled('unit_cost') ? $request->unit_cost : $item->unit_cost),
+                'type' => $data['type'],
+                'quantity' => $data['type'] === 'adjustment' ? abs($newQty - $oldQty) : $qty,
+                'balance_after' => $newQty,
+                'unit_cost' => $data['unit_cost'] ?? $item->unit_cost,
+                'reference_number' => $reference,
+                'notes' => trim(($data['notes'] ?? '').' | Purchase date: '.$purchaseDate, ' |'),
                 'created_by' => $request->user()->id,
             ]);
-        } elseif ($request->type === 'out') {
-            if ($qty > $oldQty) {
-                return $this->error('Insufficient stock. Available: ' . $oldQty, 400);
+
+            return ['item' => $item, 'transaction' => $transaction];
+        }, 3);
+
+        return $this->success([
+            'item' => $result['item']->load(['category','supplier','batches']),
+            'transaction' => $result['transaction'],
+        ], 'Stock adjusted');
+    }
+
+    private function addBatch(InventoryItem $item, float $quantity, float $unitCost, string $purchaseDate,
+        string $reference, ?string $notes, int $userId): InventoryBatch
+    {
+        return InventoryBatch::create([
+            'inventory_item_id' => $item->id,
+            'batch_number' => 'BATCH-'.$item->id.'-'.now()->format('YmdHisv').'-'.random_int(100, 999),
+            'purchase_date' => $purchaseDate,
+            'quantity' => $quantity,
+            'remaining_quantity' => $quantity,
+            'unit_cost' => $unitCost,
+            'total_cost' => round($quantity * $unitCost, 2),
+            'supplier' => $item->supplier?->name,
+            'reference_number' => $reference,
+            'notes' => $notes,
+            'created_by' => $userId,
+        ]);
+    }
+
+    /**
+     * Deduct stock from the oldest batches first. Batch data can lag behind the
+     * item quantity on legacy records, so any shortfall is reported rather than
+     * silently guessed at.
+     */
+    private function consumeBatches(InventoryItem $item, float $quantity): void
+    {
+        $remaining = $quantity;
+        $batches = InventoryBatch::where('inventory_item_id', $item->id)
+            ->where('remaining_quantity', '>', 0)
+            ->orderBy('purchase_date')->orderBy('id')->lockForUpdate()->get();
+
+        foreach ($batches as $batch) {
+            if ($remaining <= 0) {
+                break;
             }
-            $newQty = $oldQty - $qty;
-            // FIFO: deduct from oldest batches first
-            $remainingToDeduct = $qty;
-            $batches = \App\Models\InventoryBatch::where('inventory_item_id', $item->id)->where('remaining_quantity','>',0)->orderBy('purchase_date')->get();
-            foreach ($batches as $batch) {
-                if ($remainingToDeduct <= 0) break;
-                $deduct = min((float)$batch->remaining_quantity, $remainingToDeduct);
-                $batch->update(['remaining_quantity' => (float)$batch->remaining_quantity - $deduct]);
-                $remainingToDeduct -= $deduct;
-            }
-        } else { // adjustment
-            $newQty = $qty; // set to exact quantity
-            $qty = abs($newQty - $oldQty);
-            if ($newQty > $oldQty) {
-                // Adjustment up - create a batch for the added quantity
-                $added = $newQty - $oldQty;
-                \App\Models\InventoryBatch::create([
-                    'inventory_item_id' => $item->id,
-                    'batch_number' => 'ADJ-'.time(),
-                    'purchase_date' => $purchaseDate,
-                    'quantity' => $added,
-                    'remaining_quantity' => $added,
-                    'unit_cost' => $request->filled('unit_cost') ? $request->unit_cost : $item->unit_cost,
-                    'total_cost' => $added * ($request->filled('unit_cost') ? $request->unit_cost : $item->unit_cost),
-                    'notes' => 'Adjustment up',
-                    'created_by' => $request->user()->id,
-                ]);
-            }
+            $deduct = min((float) $batch->remaining_quantity, $remaining);
+            $batch->update(['remaining_quantity' => round((float) $batch->remaining_quantity - $deduct, 2)]);
+            $remaining -= $deduct;
         }
 
-        $item->update([
-            'quantity' => $newQty,
-            'unit_cost' => $request->filled('unit_cost') ? $request->unit_cost : $item->unit_cost,
-            'updated_by' => $request->user()->id,
-            'last_restocked_at' => $request->type === 'in' ? $purchaseDate : $item->last_restocked_at,
-        ]);
-
-        $transaction = InventoryTransaction::create([
-            'inventory_item_id' => $item->id,
-            'type' => $request->type,
-            'quantity' => $qty,
-            'balance_after' => $newQty,
-            'unit_cost' => $request->unit_cost ?? $item->unit_cost,
-            'reference_number' => $request->reference_number ?? 'ADJ-'.time(),
-            'notes' => $request->notes ? $request->notes . ' | Purchase date: '.$purchaseDate : 'Purchase date: '.$purchaseDate,
-            'created_by' => $request->user()->id,
-        ]);
-
-        return $this->success(['item' => $item->load(['category','supplier','batches']), 'transaction' => $transaction], 'Stock adjusted');
+        if ($remaining > 0.009) {
+            Log::warning('Inventory batches do not cover a stock decrease; reconcile batch records.', [
+                'inventory_item_id' => $item->id,
+                'unallocated_quantity' => round($remaining, 2),
+            ]);
+        }
     }
 
     public function transactions($id, Request $request)
@@ -272,12 +316,15 @@ class InventoryItemController extends Controller
     {
         $item = InventoryItem::findOrFail($id);
         $batches = $item->batches()->with('creator')->orderBy('purchase_date','desc')->paginate($request->get('per_page', 15));
-        // Also return summary
+        // Also return summary. Average cost is weighted by the remaining quantity.
+        $live = $item->batches()->where('remaining_quantity', '>', 0);
+        $remainingQty = (clone $live)->sum('remaining_quantity');
+        $remainingValue = (clone $live)->sum(DB::raw('remaining_quantity * unit_cost'));
         $summary = [
             'total_batches' => $item->batches()->count(),
             'total_quantity' => $item->batches()->sum('remaining_quantity'),
-            'total_value' => $item->batches()->sum(\Illuminate\Support\Facades\DB::raw('remaining_quantity * unit_cost')),
-            'average_cost' => $item->batches()->where('remaining_quantity','>',0)->avg('unit_cost'),
+            'total_value' => $item->batches()->sum(DB::raw('remaining_quantity * unit_cost')),
+            'average_cost' => $remainingQty > 0 ? round($remainingValue / $remainingQty, 2) : null,
         ];
         return $this->success(['batches' => $batches, 'summary' => $summary, 'item' => $item->load(['category','supplier'])]);
     }

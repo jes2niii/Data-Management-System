@@ -6,15 +6,28 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\TrainingMonitoringStoreRequest;
 use App\Http\Requests\TrainingMonitoringUpdateRequest;
 use App\Models\Training;
+use App\Models\TrainingDetail;
 use App\Models\TrainingMonitoring;
+use App\Services\CsvReport;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Response;
+use Illuminate\Validation\ValidationException;
 
 class TrainingMonitoringController extends Controller
 {
     public function index(Request $request)
     {
-        $query = TrainingMonitoring::with(['creator', 'training', 'trainingDetail'])->orderBy('date', 'desc')->orderBy('id', 'desc');
+        $records = $this->filteredQuery($request)
+            ->with(['creator', 'training', 'trainingDetail'])
+            ->orderBy('date', 'desc')->orderBy('id', 'desc')
+            ->paginate($request->get('per_page', 15));
+
+        return $this->success($records);
+    }
+
+    private function filteredQuery(Request $request): \Illuminate\Database\Eloquent\Builder
+    {
+        $query = TrainingMonitoring::query();
 
         if ($request->filled('search')) {
             $search = $request->search;
@@ -67,10 +80,7 @@ class TrainingMonitoringController extends Controller
             $query->whereDate('date', $request->date);
         }
 
-        $perPage = $request->get('per_page', 15);
-        $records = $query->paginate($perPage);
-
-        return $this->success($records);
+        return $query;
     }
 
     public function stats(Request $request)
@@ -163,6 +173,7 @@ class TrainingMonitoringController extends Controller
 
         // Balance and remarks auto-calculated in model, ensure provided values are ignored (model will override)
         unset($data['balance']);
+        $data = $this->syncTrainingReference($data);
         // Auto-fill training_course and training_fee from training if training_id present
         if (!empty($data['training_id'])) {
             $training = Training::find($data['training_id']);
@@ -191,6 +202,17 @@ class TrainingMonitoringController extends Controller
         $record = TrainingMonitoring::findOrFail($id);
         $data = $request->validated();
         unset($data['balance']);
+
+        // Keep the chosen course package consistent with its training.
+        $data = $this->syncTrainingReference($data, $record);
+        if (array_key_exists('training_id', $data) && $data['training_id'] !== null
+            && (int) $data['training_id'] !== (int) $record->training_id
+            && !array_key_exists('training_detail_id', $data)
+            && $record->training_detail_id !== null
+            && (int) $record->trainingDetail?->training_id !== (int) $data['training_id']) {
+            $data['training_detail_id'] = null;
+        }
+
         // If training_id changed, ensure course/fee sync if not explicitly provided
         if (isset($data['training_id']) && $data['training_id'] != $record->training_id) {
             $training = Training::find($data['training_id']);
@@ -214,22 +236,9 @@ class TrainingMonitoringController extends Controller
         return $this->success(null, 'Training record deleted');
     }
 
-    public function export(Request $request, $format)
+    public function export(Request $request, CsvReport $csv, $format)
     {
-        $query = TrainingMonitoring::orderBy('date', 'desc');
-        if ($request->filled('training_course')) {
-            $query->where('training_course', $request->training_course);
-        }
-        if ($request->filled('system_location')) {
-            $query->where('system_location', $request->system_location);
-        }
-        if ($request->filled('print_status')) {
-            $query->where('print_status', $request->print_status);
-        }
-        if ($request->filled('remarks')) {
-            $query->where('remarks', $request->remarks);
-        }
-        $records = $query->get();
+        $records = $this->filteredQuery($request)->orderBy('date', 'desc')->orderBy('id', 'desc')->get();
 
         $exportData = $records->map(function ($r, $idx) {
             return [
@@ -251,35 +260,53 @@ class TrainingMonitoringController extends Controller
         })->toArray();
 
         if ($format === 'csv') {
-            $csv = $this->arrayToCsv($exportData);
-            return Response::make($csv, 200, [
-                'Content-Type' => 'text/csv',
-                'Content-Disposition' => 'attachment; filename="training-monitoring-export.csv"',
-            ]);
+            return $csv->download('training-monitoring-export.csv', [
+                'No', 'Date', 'Name', 'Training Course', 'Manner of Conduct',
+                'Training Schedule (CBT/Face to Face)', 'Training Schedule (Practical)',
+                'Training Fee', 'Downpayment', 'Balance', 'Remarks',
+                'System (Manila/Naga/Legazpi)', 'Assisted By', 'Note/Status (To Print/Printed)',
+            ], $exportData);
         }
 
         if ($format === 'json') {
             return Response::json($exportData, 200, [
                 'Content-Disposition' => 'attachment; filename="training-monitoring-export.json"',
+                'Cache-Control' => 'private, no-store',
             ]);
         }
 
         return $this->error('Unsupported export format', 400);
     }
 
-    private function arrayToCsv(array $data): string
+    private function syncTrainingReference(array $data, ?TrainingMonitoring $record = null): array
     {
-        if (empty($data)) {
-            return '';
+        if (!array_key_exists('training_detail_id', $data) || $data['training_detail_id'] === null) {
+            return $data;
         }
-        $output = fopen('php://temp', 'r+');
-        fputcsv($output, array_keys($data[0]));
-        foreach ($data as $row) {
-            fputcsv($output, $row);
+
+        $detail = TrainingDetail::findOrFail($data['training_detail_id']);
+        if (array_key_exists('training_id', $data) && $data['training_id'] !== null) {
+            $trainingId = (int) $data['training_id'];
+        } elseif ($record !== null) {
+            $trainingId = (int) $record->training_id;
+        } else {
+            $trainingId = (int) $detail->training_id;
         }
-        rewind($output);
-        $csv = stream_get_contents($output);
-        fclose($output);
-        return $csv;
+
+        if ((int) $detail->training_id !== $trainingId) {
+            throw ValidationException::withMessages([
+                'training_detail_id' => 'The selected course package does not belong to the selected training.',
+            ]);
+        }
+
+        $data['training_id'] = $trainingId;
+        if (empty($data['training_course'])) {
+            $data['training_course'] = $detail->title ?: Training::find($trainingId)?->name;
+        }
+        if (!array_key_exists('training_fee', $data) || $data['training_fee'] === null || $data['training_fee'] === '') {
+            $data['training_fee'] = $detail->price;
+        }
+
+        return $data;
     }
 }

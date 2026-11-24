@@ -34,7 +34,8 @@ class TrainingMonitoringStoreRequest extends FormRequest
         $validator->after(function ($validator) {
             $hasTrainingId = $this->filled('training_id');
             $hasCourse = $this->filled('training_course');
-            if (!$hasTrainingId && !$hasCourse) {
+            $hasPackage = $this->filled('training_detail_id');
+            if (!$hasTrainingId && !$hasCourse && !$hasPackage) {
                 $validator->errors()->add('training_course', 'Training course or training_id is required.');
                 $validator->errors()->add('training_id', 'Training course or training_id is required.');
             }

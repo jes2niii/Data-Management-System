@@ -106,8 +106,10 @@ export default function UsersPage() {
   const roles = rolesData?.data || []
   const departments = departmentsData?.data || []
 
-  const getStatusBadge = (status) => {
-    if (status === false) return <Badge variant="destructive">Inactive</Badge>
+  const getStatusBadge = (user) => {
+    if (user.is_disabled) return <Badge variant="destructive">Disabled</Badge>
+    if (user.status === "suspended") return <Badge variant="destructive">Suspended</Badge>
+    if (user.status !== "active") return <Badge variant="secondary">Inactive</Badge>
     return <Badge variant="success">Active</Badge>
   }
 
@@ -167,8 +169,9 @@ export default function UsersPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="1">Active</SelectItem>
-                <SelectItem value="0">Inactive</SelectItem>
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="inactive">Inactive</SelectItem>
+                <SelectItem value="suspended">Suspended</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -211,7 +214,7 @@ export default function UsersPage() {
                         <Badge variant="outline">{user.role?.name || "-"}</Badge>
                       </TableCell>
                       <TableCell>{user.department?.name || "-"}</TableCell>
-                      <TableCell>{getStatusBadge(user.status)}</TableCell>
+                      <TableCell>{getStatusBadge(user)}</TableCell>
                       <TableCell className="text-muted-foreground">
                         {user.last_login_at
                           ? format(new Date(user.last_login_at), "MMM dd, yyyy")

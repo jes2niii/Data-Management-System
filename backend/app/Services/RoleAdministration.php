@@ -15,7 +15,7 @@ class RoleAdministration
             // Serialize changes that can remove the last enabled Super Admin.
             $systemRole = Role::where('name', Role::SUPER_ADMIN)->lockForUpdate()->first();
             $actor = User::findOrFail($actor->id);
-            abort_if($actor->is_disabled, 403);
+            abort_unless($actor->canSignIn(), 403);
 
             return $callback($actor, $systemRole);
         });
@@ -47,12 +47,12 @@ class RoleAdministration
 
     public function checkAdministratorRemains(User $target, ?Role $systemRole): void
     {
-        if ($systemRole === null || $target->role_id !== $systemRole->id || $target->is_disabled) {
+        if ($systemRole === null || $target->role_id !== $systemRole->id || !$target->canSignIn()) {
             return;
         }
 
         abort_unless(
-            $systemRole->users()->where('id', '!=', $target->id)->where('is_disabled', false)->exists(),
+            $systemRole->users()->where('id', '!=', $target->id)->where('status', 'active')->where('is_disabled', false)->exists(),
             409,
             'The last enabled Super Admin cannot be removed, disabled, or reassigned.'
         );

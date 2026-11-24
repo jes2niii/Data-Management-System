@@ -99,7 +99,9 @@ export default function SubscriptionsPage() {
   })
 
   const renewMutation = useMutation({
-    mutationFn: (id) => api.post(`/subscriptions/${id}/renew`),
+    mutationFn: (sub) => api.post(`/subscriptions/${sub.id}/renew`, {
+      expected_billing_date: sub.next_billing_date ? String(sub.next_billing_date).slice(0, 10) : undefined,
+    }),
     onSuccess: (res) => {
       toast.success(res.data.message || "Subscription renewed")
       queryClient.invalidateQueries({ queryKey: ["subscriptions"] })
@@ -288,7 +290,7 @@ export default function SubscriptionsPage() {
                                 <DropdownMenuItem onClick={() => { setEditing(s); setFormOpen(true) }}><Pencil className="mr-2 h-4 w-4" /> Edit</DropdownMenuItem>
                                 {s.status === 'active' && <DropdownMenuItem onClick={() => pauseMutation.mutate(s.id)}><Pause className="mr-2 h-4 w-4" /> Pause</DropdownMenuItem>}
                                 {s.status === 'paused' && <DropdownMenuItem onClick={() => resumeMutation.mutate(s.id)}><Play className="mr-2 h-4 w-4" /> Resume</DropdownMenuItem>}
-                                <DropdownMenuItem onClick={() => renewMutation.mutate(s.id)}><RefreshCw className="mr-2 h-4 w-4" /> Renew (next cycle)</DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => renewMutation.mutate(s)}><RefreshCw className="mr-2 h-4 w-4" /> Renew (next cycle)</DropdownMenuItem>
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem className="text-destructive" onClick={() => { setDeleting(s); setDeleteOpen(true) }}><Trash2 className="mr-2 h-4 w-4" /> Delete</DropdownMenuItem>
                               </DropdownMenuContent>

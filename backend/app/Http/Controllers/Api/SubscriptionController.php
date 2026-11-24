@@ -8,6 +8,7 @@ use App\Http\Requests\SubscriptionUpdateRequest;
 use App\Models\Subscription;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 
 class SubscriptionController extends Controller
 {
@@ -143,41 +144,62 @@ class SubscriptionController extends Controller
 
     public function renew(Request $request, $id)
     {
-        $sub = Subscription::findOrFail($id);
-        $request->validate([
+        $data = $request->validate([
+            'expected_billing_date' => 'nullable|date_format:Y-m-d',
             'next_billing_date' => 'nullable|date',
             'amount' => 'nullable|numeric|min:0',
             'paid_amount' => 'nullable|numeric|min:0',
             'notes' => 'nullable|string|max:500',
         ]);
-        $oldDate = $sub->next_billing_date;
-        $newDate = $request->filled('next_billing_date') ? Carbon::parse($request->next_billing_date) : $sub->calculateNextBillingDate();
-        $actualAmount = $request->filled('amount') ? $request->amount : $sub->amount;
 
-        // If variable amount, log the actual billing amount as a SubscriptionBilling record for history
-        if ($sub->is_variable_amount || $request->filled('amount')) {
-            \App\Models\SubscriptionBilling::create([
-                'subscription_id' => $sub->id,
-                'billing_date' => $oldDate ? Carbon::parse($oldDate)->format('Y-m-d') : now()->format('Y-m-d'),
-                'due_date' => $newDate->format('Y-m-d'),
-                'amount' => $actualAmount,
-                'paid_amount' => $request->filled('paid_amount') ? $request->paid_amount : null,
-                'status' => $request->filled('paid_amount') && $request->paid_amount >= $actualAmount ? 'paid' : 'pending',
-                'notes' => $request->notes ?? ($sub->is_variable_amount ? 'Variable amount billing' : null),
-                'created_by' => $request->user()->id,
-            ]);
-            // For variable, update the subscription's amount to the latest actual for next cycle reference, but keep estimated
-            if ($sub->is_variable_amount) {
-                $sub->update(['estimated_amount' => $actualAmount]);
+        $sub = DB::transaction(function () use ($data, $request, $id) {
+            $sub = Subscription::lockForUpdate()->findOrFail($id);
+            $oldDate = $sub->next_billing_date?->format('Y-m-d');
+            if (!empty($data['expected_billing_date']) && $data['expected_billing_date'] !== $oldDate) {
+                abort(409, 'This subscription was already renewed. Reload before renewing again.');
             }
-        }
+            $newDate = !empty($data['next_billing_date'])
+                ? Carbon::parse($data['next_billing_date'])
+                : $sub->calculateNextBillingDate();
+            $actualAmount = $data['amount'] ?? $sub->amount;
 
-        $sub->update([
-            'next_billing_date' => $newDate->format('Y-m-d'),
-            'amount' => $actualAmount,
-            'status' => $sub->status === 'paused' ? 'active' : $sub->status,
-        ]);
-        return $this->success($sub->load(['category','creator','billings']), 'Subscription renewed, next billing: '.$newDate->format('Y-m-d'));
+            // If variable amount, log the actual billing amount as a SubscriptionBilling record for history
+            if ($sub->is_variable_amount || array_key_exists('amount', $data)) {
+                $billingDate = $oldDate ?? now()->format('Y-m-d');
+                $exists = \App\Models\SubscriptionBilling::where('subscription_id', $sub->id)
+                    ->where('billing_date', $billingDate)->exists();
+                if ($exists && !empty($data['expected_billing_date'])) {
+                    abort(409, 'A billing record already exists for this cycle.');
+                }
+                \App\Models\SubscriptionBilling::create([
+                    'subscription_id' => $sub->id,
+                    'billing_date' => $billingDate,
+                    'due_date' => $newDate->format('Y-m-d'),
+                    'amount' => $actualAmount,
+                    'paid_amount' => $data['paid_amount'] ?? null,
+                    'status' => isset($data['paid_amount']) && $data['paid_amount'] >= $actualAmount ? 'paid' : 'pending',
+                    'notes' => $data['notes'] ?? ($sub->is_variable_amount ? 'Variable amount billing' : null),
+                    'created_by' => $request->user()->id,
+                ]);
+                // For variable, update the subscription's amount to the latest actual for next cycle reference, but keep estimated
+                if ($sub->is_variable_amount) {
+                    $sub->update(['estimated_amount' => $actualAmount]);
+                }
+            }
+
+            $sub->update([
+                'next_billing_date' => $newDate->format('Y-m-d'),
+                'amount' => $actualAmount,
+                'status' => $sub->status === 'paused' ? 'active' : $sub->status,
+            ]);
+
+            return $sub;
+        }, 3);
+
+        return $this->success(
+            $sub->load(['category','creator','billings']),
+            'Subscription renewed, next billing: '.$sub->next_billing_date->format('Y-m-d')
+        );
     }
 
     public function billings(Request $request, $id)
@@ -233,13 +255,14 @@ class SubscriptionController extends Controller
     private function toMonthlyAmount(Subscription $sub): float
     {
         $amount = (float) $sub->amount;
-        $freq = $sub->billing_frequency ?: 1;
-        switch ($sub->billing_cycle) {
-            case 'weekly': return $amount * (52/12) * $freq; // approx
-            case 'quarterly': return $amount / (3 * $freq);
-            case 'yearly': return $amount / (12 * $freq);
-            case 'monthly': return $amount / $freq;
-            default: return $amount;
-        }
+        $freq = max(1, (int) ($sub->billing_frequency ?: 1));
+
+        return match ($sub->billing_cycle) {
+            'weekly' => $amount * (52 / 12) / $freq,
+            'fortnightly', 'biweekly' => $amount * (26 / 12) / $freq,
+            'quarterly' => $amount / (3 * $freq),
+            'yearly', 'annually' => $amount / (12 * $freq),
+            default => $amount / $freq,
+        };
     }
 }

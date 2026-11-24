@@ -93,76 +93,69 @@ class SurveyController extends Controller
 
     public function update(Request $request, $id)
     {
-        $form = SurveyForm::findOrFail($id);
-        $request->validate([
-            'title' => 'sometimes|string|max:255',
+        $data = $request->validate([
+            'title' => 'sometimes|required|string|max:255',
             'description' => 'nullable|string',
-            'type' => 'nullable|string|in:feedback,survey,assessment,evaluation',
-            'status' => 'nullable|string|in:draft,active,closed',
-            'sections' => 'nullable|array',
-            'sections.*.title' => 'required|string',
+            'type' => 'sometimes|required|string|in:feedback,survey,assessment,evaluation',
+            'status' => 'sometimes|required|string|in:draft,active,closed',
+            'sections' => 'sometimes|required|array|list',
+            'sections.*.id' => 'sometimes|required|integer|min:1|distinct',
+            'sections.*.title' => 'required|string|max:255',
+            'sections.*.description' => 'nullable|string',
+            'sections.*.questions' => 'required|array|list',
+            'sections.*.questions.*.id' => 'sometimes|required|integer|min:1|distinct',
             'sections.*.questions.*.question' => 'required|string',
             'sections.*.questions.*.type' => 'nullable|string|in:rating,text,yes_no',
             'sections.*.questions.*.max_score' => 'nullable|integer|min:1|max:10',
         ]);
-        $form->update($request->only(['title', 'description', 'type', 'status']));
-
-        if ($request->has('sections')) {
-            $existingSections = $form->sections->keyBy('id');
-            $keepSectionIds = [];
-
-            foreach ($request->sections as $si => $secData) {
-                $sectionId = $secData['id'] ?? null;
-                if ($sectionId && $existingSections->has($sectionId)) {
-                    $section = $existingSections->get($sectionId);
-                    $section->update([
-                        'title' => $secData['title'],
-                        'description' => $secData['description'] ?? null,
-                        'order' => $si + 1,
-                    ]);
-                } else {
-                    $section = SurveySection::create([
-                        'survey_form_id' => $form->id,
-                        'title' => $secData['title'],
-                        'description' => $secData['description'] ?? null,
-                        'order' => $si + 1,
-                    ]);
-                }
-                $keepSectionIds[] = $section->id;
-
-                if (isset($secData['questions'])) {
-                    $existingQuestions = $section->questions->keyBy('id');
-                    $keepQuestionIds = [];
-                    foreach ($secData['questions'] as $qi => $qData) {
-                        $qId = $qData['id'] ?? null;
-                        if ($qId && $existingQuestions->has($qId)) {
-                            $question = $existingQuestions->get($qId);
-                            $question->update([
-                                'question' => $qData['question'],
-                                'type' => $qData['type'] ?? 'rating',
-                                'max_score' => $qData['max_score'] ?? 5,
-                                'survey_section_id' => $section->id,
-                                'order' => $qi + 1,
-                            ]);
-                        } else {
-                            $question = SurveyQuestion::create([
-                                'survey_form_id' => $form->id,
-                                'survey_section_id' => $section->id,
-                                'question' => $qData['question'],
-                                'type' => $qData['type'] ?? 'rating',
-                                'max_score' => $qData['max_score'] ?? 5,
-                                'order' => $qi + 1,
-                            ]);
-                        }
-                        $keepQuestionIds[] = $question->id;
-                    }
-                    $section->questions()->whereNotIn('id', $keepQuestionIds)->delete();
-                }
+        $form = DB::transaction(function () use ($id, $data) {
+            $form = SurveyForm::lockForUpdate()->findOrFail($id);
+            if (isset($data['sections'])) {
+                abort_if($form->responses()->exists() || SurveyAnswer::whereHas('question', fn ($query) =>
+                    $query->where('survey_form_id', $form->id))->exists(),
+                    409, 'Survey questions cannot be changed after a response has been recorded. Create a new survey for structural changes.');
+                $this->replaceSections($form, $data['sections']);
             }
-            $form->sections()->whereNotIn('id', $keepSectionIds)->delete();
-        }
+            $form->update(\Illuminate\Support\Arr::except($data, ['sections']));
+
+            return $form;
+        });
 
         return $this->success($form->load('sections.questions'), 'Survey updated');
+    }
+
+    private function replaceSections(SurveyForm $form, array $sections): void
+    {
+        $existing = $form->sections()->with('questions')->get()->keyBy('id');
+        $keepSections = [];
+        foreach ($sections as $index => $values) {
+            $section = isset($values['id']) ? $existing->get($values['id']) : new SurveySection;
+            if ($section === null) {
+                throw ValidationException::withMessages(["sections.{$index}.id" => 'The section must belong to this survey.']);
+            }
+            $section->fill(['title' => $values['title'], 'order' => $index + 1]
+                + \Illuminate\Support\Arr::only($values, ['description']));
+            $form->sections()->save($section);
+            $keepSections[] = $section->id;
+            $questions = $section->questions->keyBy('id');
+            $keepQuestions = [];
+            foreach ($values['questions'] as $offset => $input) {
+                $question = isset($input['id']) ? $questions->get($input['id']) : new SurveyQuestion;
+                if ($question === null) {
+                    throw ValidationException::withMessages([
+                        "sections.{$index}.questions.{$offset}.id" => 'The question must belong to this section.',
+                    ]);
+                }
+                $question->fill([
+                    'survey_form_id' => $form->id, 'survey_section_id' => $section->id,
+                    'question' => $input['question'], 'type' => $input['type'] ?? 'rating',
+                    'max_score' => $input['max_score'] ?? 5, 'order' => $offset + 1,
+                ])->save();
+                $keepQuestions[] = $question->id;
+            }
+            $section->questions()->whereNotIn('id', $keepQuestions)->delete();
+        }
+        $form->sections()->whereNotIn('id', $keepSections)->delete();
     }
 
     public function destroy($id)
@@ -187,6 +180,7 @@ class SurveyController extends Controller
 
         $response = DB::transaction(function () use ($id, $data, $request) {
             $form = SurveyForm::lockForUpdate()->findOrFail($id);
+            abort_unless($form->status === 'active', 409, 'This survey is not accepting responses.');
             $questions = $form->questions()->whereIn('id', array_column($data['answers'], 'question_id'))
                 ->lockForUpdate()->get()->keyBy('id');
             $totalScore = 0;

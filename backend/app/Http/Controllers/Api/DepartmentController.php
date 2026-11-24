@@ -10,7 +10,7 @@ class DepartmentController extends Controller
 {
     public function index(Request $request)
     {
-        $query = Department::with(['head', 'users'])->withCount('employees');
+        $query = Department::with(['head:id,name', 'users:id,name,department_id'])->withCount('employees');
 
         if ($request->filled('search')) {
             $search = $request->search;
@@ -41,12 +41,13 @@ class DepartmentController extends Controller
 
         $department = Department::create($request->all());
 
-        return $this->success($department->load('head'), 'Department created', 201);
+        return $this->success($department->load('head:id,name'), 'Department created', 201);
     }
 
     public function show($id)
     {
-        $department = Department::with(['head', 'users', 'employees'])->withCount('employees')->findOrFail($id);
+        $department = Department::with(['head:id,name', 'users:id,name,department_id', 'employees:id,full_name,department_id'])
+            ->withCount('employees')->findOrFail($id);
 
         return $this->success($department);
     }
@@ -65,7 +66,7 @@ class DepartmentController extends Controller
 
         $department->update($request->all());
 
-        return $this->success($department->load('head'), 'Department updated');
+        return $this->success($department->load('head:id,name'), 'Department updated');
     }
 
     public function destroy($id)

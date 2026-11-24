@@ -85,6 +85,9 @@ class Subscription extends Model
         switch ($this->billing_cycle) {
             case 'weekly':
                 return $base->copy()->addWeeks($freq);
+            case 'fortnightly':
+            case 'biweekly':
+                return $base->copy()->addWeeks(2 * $freq);
             case 'quarterly':
                 return $base->copy()->addMonths(3 * $freq);
             case 'yearly':
