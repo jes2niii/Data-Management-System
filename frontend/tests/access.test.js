@@ -1,6 +1,6 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { canOpenPage, canOpenSettingsTab, hasPermission, settingsTabFor } from "../src/lib/access.js"
+import { canOpenPage, canOpenSettingsTab, hasPermission, settingsTabFor, dashboardSections } from "../src/lib/access.js"
 
 const account = (permissions, name = "Custom") => ({
   role: { name, permissions: permissions.map((permission) => ({ name: permission })) },
@@ -20,6 +20,16 @@ test("reports require both general and source read permissions", () => {
   assert.equal(canOpenPage(account(["reports.read"]), "reports"), false)
   assert.equal(canOpenPage(account(["bills.read"]), "reports"), false)
   assert.equal(canOpenPage(account(["reports.read", "bills.read"]), "reports"), true)
+})
+
+test("dashboard widgets follow permissions rather than role names", () => {
+  const sections = dashboardSections(account(["documents.read", "employees.read"]))
+  assert.deepEqual(sections, {
+    employees: true, users: false, documents: true, bills: false,
+    training: false, inventory: false, activityLogs: false, storage: true,
+  })
+  const superAdmin = dashboardSections(account([], "Super Admin"))
+  assert.equal(Object.values(superAdmin).every(Boolean), true)
 })
 
 test("settings uses an accessible default and preserves the training alias", () => {

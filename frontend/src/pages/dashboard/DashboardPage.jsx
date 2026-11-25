@@ -3,6 +3,7 @@ import { format } from "date-fns"
 import api from "@/lib/api"
 import { useAuth } from "@/contexts/AuthContext"
 import { useCurrency } from "@/hooks/useCurrency"
+import { hasPermission } from "@/lib/access"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -46,7 +47,17 @@ function formatNumber(n) {
 export default function DashboardPage() {
   const { symbol, format: formatCurrency } = useCurrency()
   const { user } = useAuth()
-  const roleName = user?.role?.name || ""
+  const sections = {
+    employees: hasPermission(user, "employees.read"),
+    users: hasPermission(user, "users.read"),
+    documents: hasPermission(user, "documents.read"),
+    bills: hasPermission(user, "bills.read"),
+    training: hasPermission(user, "training_monitorings.read"),
+    inventory: hasPermission(user, "inventory.read"),
+    activityLogs: hasPermission(user, "activity_logs.read"),
+    storage: hasPermission(user, "documents.read") || hasPermission(user, "book_inventories.read")
+      || hasPermission(user, "employees.read") || hasPermission(user, "bills.read"),
+  }
 
   const { data, isLoading } = useQuery({
     queryKey: ["dashboard"],
@@ -67,15 +78,13 @@ export default function DashboardPage() {
     )
   }
 
-  const isAdmin = roleName === "Super Admin" || roleName === "Administrator"
-  const isHR = roleName === "HR"
-  const isFinance = roleName === "Finance"
-
   const allStatsCards = [
-    { key: "employees", title: "Total Employees", value: dashboard.total_employees || 0, icon: UserCircle, color: "text-blue-600 dark:text-blue-400", show: isAdmin || isHR },
-    { key: "users", title: "Active Users", value: dashboard.active_users || 0, icon: Users, color: "text-green-600 dark:text-green-400", show: isAdmin },
-    { key: "documents", title: "Total Documents", value: dashboard.total_documents || 0, icon: FileText, color: "text-purple-600 dark:text-purple-400", show: isAdmin || isHR },
-    { key: "bills", title: "Monthly Bills", value: formatCurrency(dashboard.total_monthly_bills || 0), icon: DollarSign, color: "text-orange-600 dark:text-orange-400", show: isAdmin || isFinance },
+    { key: "employees", title: "Total Employees", value: dashboard.total_employees || 0, icon: UserCircle, color: "text-blue-600 dark:text-blue-400", show: sections.employees },
+    { key: "users", title: "Active Users", value: dashboard.active_users || 0, icon: Users, color: "text-green-600 dark:text-green-400", show: sections.users },
+    { key: "documents", title: "Total Documents", value: dashboard.total_documents || 0, icon: FileText, color: "text-purple-600 dark:text-purple-400", show: sections.documents },
+    { key: "bills", title: "Monthly Bills", value: formatCurrency(dashboard.total_monthly_bills || 0), icon: DollarSign, color: "text-orange-600 dark:text-orange-400", show: sections.bills },
+    { key: "training", title: "Training Records", value: dashboard.training_stats?.total_count || 0, icon: GraduationCap, color: "text-emerald-600 dark:text-emerald-400", show: sections.training },
+    { key: "inventory", title: "Inventory Items", value: dashboard.inventory_stats?.total_items || 0, icon: Boxes, color: "text-indigo-600 dark:text-indigo-400", show: sections.inventory },
   ]
   const statsCards = allStatsCards.filter(s => s.show)
 
@@ -151,7 +160,8 @@ export default function DashboardPage() {
         <p className="text-muted-foreground">Overview of your data management system</p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      {statsCards.length > 0 && (
+      <div className={statsCards.length <= 2 ? "grid gap-4 sm:grid-cols-2" : statsCards.length === 3 ? "grid gap-4 sm:grid-cols-2 lg:grid-cols-3" : "grid gap-4 sm:grid-cols-2 lg:grid-cols-4"}>
         {statsCards.map((stat) => {
           const Icon = stat.icon
           return (
@@ -167,7 +177,9 @@ export default function DashboardPage() {
           )
         })}
       </div>
+      )}
 
+      {sections.training && <>
       {/* Training Revenue Section */}
       <div>
         <div className="flex items-center gap-2 mb-3">
@@ -408,6 +420,9 @@ export default function DashboardPage() {
         </CardContent>
       </Card>
 
+      </>}
+
+      {sections.inventory && <>
       {/* Inventory Monitoring - Supply Chain Management Department */}
       <div>
         <div className="flex items-center gap-2 mb-3">
@@ -512,9 +527,11 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      {(isAdmin || isFinance || isHR) && (
-      <div className="grid gap-4 md:grid-cols-2">
-        {(isAdmin || isFinance) && (
+      </>}
+
+      {(sections.bills || sections.documents) && (
+      <div className={sections.bills && sections.documents ? "grid gap-4 md:grid-cols-2" : "grid gap-4"}>
+        {sections.bills && (
         <Card>
           <CardHeader>
             <CardTitle className="text-lg font-medium">Monthly Billing</CardTitle>
@@ -540,7 +557,7 @@ export default function DashboardPage() {
         </Card>
         )}
 
-        {(isAdmin || isHR) && (
+        {sections.documents && (
         <Card>
           <CardHeader>
             <CardTitle className="text-lg font-medium">Document Uploads</CardTitle>
@@ -567,8 +584,8 @@ export default function DashboardPage() {
       </div>
       )}
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card className="md:col-span-2">
+      {(sections.activityLogs || sections.storage) && <div className={sections.activityLogs && sections.storage ? "grid gap-4 md:grid-cols-3" : "grid gap-4"}>
+        {sections.activityLogs && <Card className={sections.storage ? "md:col-span-2" : ""}>
           <CardHeader>
             <CardTitle className="text-lg font-medium">Recent Activity</CardTitle>
           </CardHeader>
@@ -605,9 +622,9 @@ export default function DashboardPage() {
               </div>
             )}
           </CardContent>
-        </Card>
+        </Card>}
 
-        <Card>
+        {sections.storage && <Card>
           <CardHeader>
             <CardTitle className="text-lg font-medium">Storage Usage</CardTitle>
           </CardHeader>
@@ -623,10 +640,10 @@ export default function DashboardPage() {
               <p>Total Files: {dashboard.total_files || 0}</p>
             </div>
           </CardContent>
-        </Card>
-      </div>
+        </Card>}
+      </div>}
 
-      <Card>
+      {sections.documents && <Card>
         <CardHeader>
           <CardTitle className="text-lg font-medium">Latest Files</CardTitle>
         </CardHeader>
@@ -663,7 +680,7 @@ export default function DashboardPage() {
             </Table>
           )}
         </CardContent>
-      </Card>
+      </Card>}
     </div>
   )
 }

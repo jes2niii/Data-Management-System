@@ -445,6 +445,17 @@ class ContainmentTest extends TestCase
         $this->assertDatabaseHas('departments', ['id' => $used->id]);
     }
 
+    public function test_exam_deletion_requires_items_delete_permission(): void
+    {
+        $exam = TestExam::create(['title' => 'Disposable exam']);
+        Sanctum::actingAs($this->account(['items.read']));
+        $this->deleteJson("/api/test-exams/{$exam->id}")->assertForbidden();
+
+        Sanctum::actingAs($this->account(['items.delete']));
+        $this->deleteJson("/api/test-exams/{$exam->id}")->assertOk();
+        $this->assertSoftDeleted('test_exams', ['id' => $exam->id]);
+    }
+
     public function test_quick_item_analysis_uses_the_same_scoring_rules(): void
     {
         Sanctum::actingAs($this->account(['items.update']));

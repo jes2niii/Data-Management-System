@@ -1,4 +1,4 @@
-import { createBrowserRouter, Navigate, Outlet } from "react-router-dom"
+import { createBrowserRouter, Navigate, Outlet, useRouteError } from "react-router-dom"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { AuthProvider } from "@/contexts/AuthContext"
 import AppLayout from "@/components/layout/AppLayout"
@@ -78,6 +78,19 @@ function SessionStatus() {
   )
 }
 
+function RouteError() {
+  const error = useRouteError()
+  return (
+    <div className="flex min-h-dvh flex-col items-center justify-center gap-3 p-4 text-center">
+      <h1 className="text-2xl font-semibold">Could not load this page</h1>
+      <p role="alert" className="max-w-lg text-sm text-muted-foreground">
+        {error?.message || "The page module could not be fetched. Reload to try again."}
+      </p>
+      <Button onClick={() => window.location.reload()}>Reload page</Button>
+    </div>
+  )
+}
+
 function ModuleRoute({ page, children }) {
   const { user } = useAuth()
   if (!canOpenPage(user, page)) return <AccessMessage />
@@ -87,6 +100,7 @@ function ModuleRoute({ page, children }) {
 export const router = createBrowserRouter([
   {
     element: <Providers><Outlet /></Providers>,
+    errorElement: <RouteError />,
     children: [
       {
         path: "/login",

@@ -2,6 +2,8 @@ import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import api from "@/lib/api"
+import { useAuth } from "@/contexts/AuthContext"
+import { hasPermission } from "@/lib/access"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -9,10 +11,11 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
-import { Plus, Trash2, Search, TrendingUp, Play, Users, Pencil } from "lucide-react"
+import { Plus, Trash2, Search, TrendingUp, Play, Users, Pencil, MoreHorizontal } from "lucide-react"
 import { chartTooltipContentStyle, chartTooltipLabelStyle, chartTooltipItemStyle, chartBarCursor } from "@/lib/chart-theme"
 import QuickItemAnalysis from "./QuickItemAnalysis"
 
@@ -30,6 +33,8 @@ const getItemOptions = (item) => {
 
 export default function TestItemAnalysis() {
   const queryClient = useQueryClient()
+  const { user } = useAuth()
+  const canDelete = hasPermission(user, "items.delete")
   const [search, setSearch] = useState("")
   const [page, setPage] = useState(1)
   const [examDialogOpen, setExamDialogOpen] = useState(false)
@@ -41,6 +46,8 @@ export default function TestItemAnalysis() {
   const [examForm, setExamForm] = useState({ title: "", description: "", subject: "", items: [{ item_number: 1, question: "", correct_answer: "", item_type: "multiple_choice", options: null }] })
   const [itemsLocked, setItemsLocked] = useState(false)
   const [studentForm, setStudentForm] = useState([{ name: "", answers: [] }])
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [deletingExam, setDeletingExam] = useState(null)
 
   const { data, isLoading } = useQuery({
     queryKey: ["test-exams", search, page],
@@ -66,6 +73,21 @@ export default function TestItemAnalysis() {
     mutationFn: (id) => api.post(`/test-exams/${id}/analyze`),
     onSuccess: (_, id) => { toast.success("Analysis complete"); queryClient.invalidateQueries({ queryKey: ["test-exams"] }); queryClient.invalidateQueries({ queryKey: ["test-analysis", id] }) },
     onError: (err) => toast.error(err.response?.data?.message || "Failed"),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id) => api.delete(`/test-exams/${id}`),
+    onSuccess: () => {
+      toast.success("Exam deleted")
+      queryClient.invalidateQueries({ queryKey: ["test-exams"] })
+      if (deletingExam?.id === selectedExam?.id) {
+        setSelectedExam(null)
+        setAnalysisOpen(false)
+      }
+      setDeleteDialogOpen(false)
+      setDeletingExam(null)
+    },
+    onError: (err) => toast.error(err.response?.data?.message || "Failed to delete exam"),
   })
 
   const { data: analysisData } = useQuery({
@@ -110,6 +132,16 @@ export default function TestItemAnalysis() {
       setEditExamOpen(true)
     } catch {
       toast.error("Could not load the exam. No edits were made.")
+    }
+  }
+
+  const openResults = async (exam) => {
+    try {
+      const { data: { data: current } } = await api.get(`/test-exams/${exam.id}`)
+      setSelectedExam(current)
+      setAnalysisOpen(true)
+    } catch {
+      toast.error("Could not load the analysis.")
     }
   }
 
@@ -231,7 +263,7 @@ export default function TestItemAnalysis() {
           : exams.length === 0 ? <div className="text-center py-8 text-muted-foreground">No exams. Create a test exam first.</div>
           : (
             <Table>
-              <TableHeader><TableRow><TableHead>Title</TableHead><TableHead>Subject</TableHead><TableHead>Items</TableHead><TableHead>Students</TableHead><TableHead>Analyzed</TableHead><TableHead className="w-[200px]">Actions</TableHead></TableRow></TableHeader>
+              <TableHeader><TableRow><TableHead>Title</TableHead><TableHead>Subject</TableHead><TableHead>Items</TableHead><TableHead>Students</TableHead><TableHead>Analyzed</TableHead><TableHead className="w-[80px]">Actions</TableHead></TableRow></TableHeader>
               <TableBody>
                 {exams.map(e => (
                   <TableRow key={e.id}>
@@ -240,21 +272,41 @@ export default function TestItemAnalysis() {
                     <TableCell>{e.items_count || e.total_items || 0}</TableCell>
                     <TableCell>{e.students_count || 0}</TableCell>
                     <TableCell>{e.has_analysis ? <Badge variant="success">Yes</Badge> : <Badge variant="outline">No</Badge>}</TableCell>
-                    <TableCell>
-                      <div className="flex gap-1 flex-wrap">
-                         <Button variant="ghost" size="icon" onClick={() => openExamEditor(e)} title="Edit"><Pencil className="h-4 w-4" /></Button>
-                        <Button variant="outline" size="sm" onClick={() => openStudentForm(e)}><Users className="mr-1 h-3 w-3" /> Students</Button>
-                        {e.students_count >= 2 && (
-                           <Button variant="outline" size="sm" onClick={() => analyzeMutation.mutate(e.id)} disabled={analyzeMutation.isPending}>
-                            <Play className="mr-1 h-3 w-3" /> Analyze
+                    <TableCell className="text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" aria-label={`Actions for ${e.title}`}>
+                            <MoreHorizontal className="h-4 w-4" />
                           </Button>
-                        )}
-                        {e.has_analysis && (
-                          <Button variant="outline" size="sm" onClick={async () => { const res = await api.get(`/test-exams/${e.id}`); setSelectedExam(res.data?.data); setAnalysisOpen(true) }}>
-                            <TrendingUp className="mr-1 h-3 w-3" /> Results
-                          </Button>
-                        )}
-                      </div>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onSelect={() => openExamEditor(e)}>
+                            <Pencil className="mr-2 h-4 w-4" /> Edit exam
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => openStudentForm(e)}>
+                            <Users className="mr-2 h-4 w-4" /> Student scores
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            onSelect={() => analyzeMutation.mutate(e.id)}
+                            disabled={e.students_count < 2 || analyzeMutation.isPending}
+                          >
+                            <Play className="mr-2 h-4 w-4" /> Analyze
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => openResults(e)} disabled={!e.has_analysis}>
+                            <TrendingUp className="mr-2 h-4 w-4" /> View results
+                          </DropdownMenuItem>
+                          {canDelete && <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              className="text-destructive focus:text-destructive"
+                              onSelect={() => { setDeletingExam(e); setDeleteDialogOpen(true) }}
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" /> Delete exam
+                            </DropdownMenuItem>
+                          </>}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -579,6 +631,27 @@ export default function TestItemAnalysis() {
               )}
             </TabsContent>
           </Tabs>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete exam?</DialogTitle>
+            <DialogDescription>
+              {deletingExam?.title} and its recorded scores and analysis will be removed. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              disabled={deleteMutation.isPending}
+              onClick={() => deleteMutation.mutate(deletingExam.id)}
+            >
+              {deleteMutation.isPending ? "Deleting..." : "Delete"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

@@ -51,3 +51,20 @@ export function canOpenSettingsTab(user, tab) {
   return Boolean(user) && Object.hasOwn(settingsPermissions, tab) &&
     settingsPermissions[tab].every((permission) => hasPermission(user, permission))
 }
+
+/** Dashboard widgets are chosen by permissions, never by hardcoded role names. */
+export function dashboardSections(user) {
+  return {
+    employees: hasPermission(user, "employees.read"),
+    users: hasPermission(user, "users.read"),
+    documents: hasPermission(user, "documents.read"),
+    bills: hasPermission(user, "bills.read"),
+    training: hasPermission(user, "training_monitorings.read"),
+    inventory: hasPermission(user, "inventory.read"),
+    activityLogs: hasPermission(user, "activity_logs.read"),
+    storage: hasPermission(user, "documents.read")
+      || hasPermission(user, "book_inventories.read")
+      || hasPermission(user, "employees.read")
+      || hasPermission(user, "bills.read"),
+  }
+}
