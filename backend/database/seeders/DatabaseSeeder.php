@@ -211,6 +211,7 @@ class DatabaseSeeder extends Seeder
             'Finance Department',
             'Human Resource Department',
             'Marketing Department',
+            'Records Management Department',
             'Quality Assurance and Management Department',
             'Supply Chain Management Department',
         ];

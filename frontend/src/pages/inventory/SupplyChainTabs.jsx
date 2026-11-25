@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
 import { Search, Plus, Pencil, Trash2 } from "lucide-react"
 
@@ -156,7 +157,20 @@ function CrudTable({ endpoint, columns, title, description, searchPlaceholder })
               {columns.filter(c => !["total_balance"].includes(c.key)).map(col => (
                 <div key={col.key} className="space-y-1">
                   <Label>{col.label}</Label>
-                  <Input value={form[col.key] ?? ""} onChange={e => setForm({ ...form, [col.key]: e.target.value })} placeholder={col.label} type={col.key.includes("date") ? "date" : col.key.includes("qty") || col.key.includes("balance") || col.key.includes("price") ? "number" : "text"} />
+                  {col.options ? (
+                    <Select
+                      value={form[col.key] || "none"}
+                      onValueChange={(value) => setForm({ ...form, [col.key]: value === "none" ? "" : value })}
+                    >
+                      <SelectTrigger><SelectValue placeholder={`Select ${col.label.toLowerCase()}`} /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">—</SelectItem>
+                        {col.options.map((option) => <SelectItem key={option} value={option}>{option}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input value={form[col.key] ?? ""} onChange={e => setForm({ ...form, [col.key]: e.target.value })} placeholder={col.label} type={col.key.includes("date") ? "date" : col.key.includes("qty") || col.key.includes("balance") || col.key.includes("price") ? "number" : "text"} />
+                  )}
                 </div>
               ))}
             </div>
@@ -233,7 +247,7 @@ export default function SupplyChainTabs() {
     { key: "description", label: "DESCRIPTION" },
     { key: "serial_number", label: "SERIAL NUMBER" },
     { key: "date_checked", label: "DATE CHECKED", render: (i) => i.date_checked ? i.date_checked.slice(0,10) : "—" },
-    { key: "status", label: "STATUS" },
+    { key: "status", label: "STATUS", options: ["Good", "Damaged", "For Disposal", "For Repair"] },
   ]
 
   return (

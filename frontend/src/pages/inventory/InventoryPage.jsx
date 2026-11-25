@@ -309,7 +309,7 @@ export default function InventoryPage() {
               <div className="flex flex-wrap gap-3 items-end">
                 <div className="relative flex-1 min-w-[200px]">
                   <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input placeholder="Search SKU, name..." className="pl-9" value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} />
+                  <Input placeholder="Search item no., name..." className="pl-9" value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} />
                 </div>
                 <Select value={categoryFilter} onValueChange={v => { setCategoryFilter(v); setPage(1) }}>
                   <SelectTrigger className="w-[180px]"><SelectValue placeholder="All Categories" /></SelectTrigger>
@@ -361,7 +361,7 @@ export default function InventoryPage() {
                     <Table>
                       <TableHeader className="bg-muted/50">
                         <TableRow>
-                          <TableHead>SKU</TableHead>
+                          <TableHead>Item No.</TableHead>
                           <TableHead>Item Name</TableHead>
                           <TableHead>Category</TableHead>
                           <TableHead>Supplier</TableHead>
@@ -508,7 +508,7 @@ export default function InventoryPage() {
 
       <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Delete Item</DialogTitle><DialogDescription>Delete <strong>{deleting?.name}</strong> ({deleting?.sku})? This cannot be undone.</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>Delete Item</DialogTitle><DialogDescription>Delete <strong>{deleting?.name}</strong> (Item No.: {deleting?.sku})? This cannot be undone.</DialogDescription></DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={()=>setDeleteOpen(false)}>Cancel</Button>
             <Button variant="destructive" disabled={deleteMutation.isPending} onClick={()=>deleteMutation.mutate(deleting?.id)}>{deleteMutation.isPending?"Deleting...":"Delete"}</Button>

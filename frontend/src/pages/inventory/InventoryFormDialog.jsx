@@ -97,8 +97,8 @@ export default function InventoryFormDialog({ open, onClose, item, categories, s
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>SKU</Label>
-              <Input placeholder="e.g., OFF-001" {...form.register("sku")} />
+              <Label>Item No.</Label>
+              <Input placeholder="e.g., ITEM-001" {...form.register("sku")} />
             </div>
             <div className="space-y-2">
               <Label>Item Name *</Label>
