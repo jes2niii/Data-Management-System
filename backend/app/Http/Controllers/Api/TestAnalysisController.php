@@ -8,7 +8,7 @@ use App\Models\TestExam;
 use App\Models\TestItem;
 use App\Models\TestItemAnalysis;
 use App\Models\TestStudent;
-use App\Services\ItemAnalysisCalculator;
+use App\Services\ItemAnalysisRecorder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -191,60 +191,14 @@ class TestAnalysisController extends Controller
         return $this->success($exam->load('students'), 'Students added', 201);
     }
 
-    public function runAnalysis($id, ItemAnalysisCalculator $calculator)
+    public function runAnalysis($id, ItemAnalysisRecorder $recorder)
     {
-        $exam = TestExam::with(['items'])->findOrFail($id);
-        $students = $exam->students()->with('answers')->orderBy('total_score', 'desc')->orderBy('id')->get();
-        $totalStudents = $students->count();
-
-        if ($totalStudents < 2) {
+        $exam = TestExam::findOrFail($id);
+        if ($exam->students()->count() < 2) {
             return $this->error('Need at least 2 students for analysis', 400);
         }
 
-        [$ua, $la] = $calculator->splitGroups($students);
-
-        $uaTotal = $ua->count();
-        $laTotal = $la->count();
-
-        DB::transaction(function () use ($exam, $students, $ua, $la, $uaTotal, $laTotal, $calculator) {
-            $exam->analysis()->delete();
-
-            // Persist the group membership and rank so the analysis can be audited later.
-            foreach ($students->values() as $index => $student) {
-                $student->update(['group' => null, 'rank' => $index + 1]);
-            }
-            foreach ($ua as $student) {
-                $student->update(['group' => 'UA']);
-            }
-            foreach ($la as $student) {
-                $student->update(['group' => 'LA']);
-            }
-
-            foreach ($exam->items as $item) {
-                $uaChoices = $this->getItemChoices($item, $ua);
-                $laChoices = $this->getItemChoices($item, $la);
-
-                $uaCorrect = $this->countCorrect($item, $ua);
-                $laCorrect = $this->countCorrect($item, $la);
-
-                $metrics = $calculator->metrics($uaCorrect, $laCorrect, $uaTotal, $laTotal);
-
-                TestItemAnalysis::create([
-                    'test_exam_id' => $exam->id,
-                    'test_item_id' => $item->id,
-                    'ua_correct' => $uaCorrect, 'la_correct' => $laCorrect,
-                    'ua_total' => $uaTotal, 'la_total' => $laTotal,
-                    'ua_proportion' => $metrics['ua_proportion'], 'la_proportion' => $metrics['la_proportion'],
-                    'difficulty_index' => $metrics['difficulty_index'],
-                    'discrimination_index' => $metrics['discrimination_index'],
-                    'difficulty_level' => $metrics['difficulty_level'],
-                    'discrimination_level' => $metrics['discrimination_level'],
-                    'action' => $metrics['action'],
-                    'upper_choices' => $uaChoices,
-                    'lower_choices' => $laChoices,
-                ]);
-            }
-        }, 3);
+        $recorder->record($exam);
 
         return $this->success($exam->load(['items', 'analysis.item', 'students']), 'Analysis complete');
     }

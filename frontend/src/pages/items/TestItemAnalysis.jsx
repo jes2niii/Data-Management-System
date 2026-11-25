@@ -15,7 +15,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
-import { Plus, Trash2, Search, TrendingUp, Play, Users, Pencil, MoreHorizontal } from "lucide-react"
+import { Plus, Trash2, Search, TrendingUp, Play, Users, Pencil, MoreHorizontal, ClipboardList, UserCircle } from "lucide-react"
 import { chartTooltipContentStyle, chartTooltipLabelStyle, chartTooltipItemStyle, chartBarCursor } from "@/lib/chart-theme"
 import QuickItemAnalysis from "./QuickItemAnalysis"
 
@@ -48,6 +48,10 @@ export default function TestItemAnalysis() {
   const [studentForm, setStudentForm] = useState([{ name: "", answers: [] }])
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [deletingExam, setDeletingExam] = useState(null)
+  const [analysisFilter, setAnalysisFilter] = useState("all")
+  const [analysisSearch, setAnalysisSearch] = useState("")
+  const [showChart, setShowChart] = useState(false)
+  const [tallyItemIndex, setTallyItemIndex] = useState(0)
 
   const { data, isLoading } = useQuery({
     queryKey: ["test-exams", search, page],
@@ -59,13 +63,23 @@ export default function TestItemAnalysis() {
 
   const examMutation = useMutation({
     mutationFn: (fd) => editingExamId ? api.put(`/test-exams/${editingExamId}`, fd) : api.post("/test-exams", fd),
-    onSuccess: () => { toast.success(editingExamId ? "Exam updated" : "Exam created"); queryClient.invalidateQueries({ queryKey: ["test-exams"] }); setExamDialogOpen(false); setEditExamOpen(false); setEditingExamId(null); resetExamForm() },
+    onSuccess: () => {
+      toast.success(editingExamId ? "Exam updated" : "Exam created")
+      queryClient.invalidateQueries({ queryKey: ["test-exams"] })
+      queryClient.invalidateQueries({ queryKey: ["test-analysis"] })
+      setExamDialogOpen(false); setEditExamOpen(false); setEditingExamId(null); resetExamForm()
+    },
     onError: (err) => toast.error(err.response?.data?.message || "Failed"),
   })
 
   const studentMutation = useMutation({
     mutationFn: () => api.post(`/test-exams/${selectedExam?.id}/students`, { students: studentForm }),
-    onSuccess: () => { toast.success("Students added"); queryClient.invalidateQueries({ queryKey: ["test-exams"] }); setStudentDialogOpen(false) },
+    onSuccess: () => {
+      toast.success("Students added")
+      queryClient.invalidateQueries({ queryKey: ["test-exams"] })
+      queryClient.invalidateQueries({ queryKey: ["test-analysis", selectedExam?.id] })
+      setStudentDialogOpen(false)
+    },
     onError: (err) => toast.error(err.response?.data?.message || "Failed"),
   })
 
@@ -80,6 +94,7 @@ export default function TestItemAnalysis() {
     onSuccess: () => {
       toast.success("Exam deleted")
       queryClient.invalidateQueries({ queryKey: ["test-exams"] })
+      queryClient.invalidateQueries({ queryKey: ["test-analysis", deletingExam?.id] })
       if (deletingExam?.id === selectedExam?.id) {
         setSelectedExam(null)
         setAnalysisOpen(false)
@@ -155,6 +170,13 @@ export default function TestItemAnalysis() {
     difficulty: Number(a.difficulty_index || 0),
     discrimination: Number(a.discrimination_index || 0),
   }))
+
+  const visibleAnalysis = analysis.filter((item) => {
+    const matchesAction = analysisFilter === "all" || item.action === analysisFilter
+    const needle = analysisSearch.trim().toLowerCase()
+    const matchesSearch = !needle || `item ${item.item_number} ${item.question || ""}`.toLowerCase().includes(needle)
+    return matchesAction && matchesSearch
+  })
 
   const renderTallyHeader = (itemOptions) => {
     const optionCount = itemOptions.length
@@ -457,17 +479,53 @@ export default function TestItemAnalysis() {
 
       {/* Analysis Results Dialog */}
       <Dialog open={analysisOpen} onOpenChange={setAnalysisOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Analysis Results - {selectedExam?.title}</DialogTitle></DialogHeader>
-          <Tabs defaultValue="results">
-            <TabsList><TabsTrigger value="results">Item Analysis</TabsTrigger><TabsTrigger value="tally">Tally Sheet</TabsTrigger><TabsTrigger value="rankings">Rankings ({students.length})</TabsTrigger><TabsTrigger value="students">Students</TabsTrigger></TabsList>
+        <DialogContent className="max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
+          <DialogHeader className="shrink-0">
+            <DialogTitle>Analysis Results — {selectedExam?.title}</DialogTitle>
+            <DialogDescription className="text-xs">
+              {selectedExam?.total_items || examItems.length} items • {students.length} students •
+              grouped into top and bottom 27% for the indices below
+            </DialogDescription>
+          </DialogHeader>
+          <Tabs defaultValue="results" className="flex-1 min-h-0 flex flex-col">
+            <TabsList className="shrink-0 sticky top-0 z-10 flex-wrap justify-start gap-1 rounded-none border-b bg-background/95 backdrop-blur px-0 py-1">
+              <TabsTrigger value="results" className="gap-1.5"><TrendingUp className="h-3.5 w-3.5" /> Item Analysis</TabsTrigger>
+              <TabsTrigger value="tally" className="gap-1.5"><ClipboardList className="h-3.5 w-3.5" /> Tally Sheet</TabsTrigger>
+              <TabsTrigger value="rankings" className="gap-1.5"><Users className="h-3.5 w-3.5" /> Rankings ({students.length})</TabsTrigger>
+              <TabsTrigger value="students" className="gap-1.5"><UserCircle className="h-3.5 w-3.5" /> Students ({students.length})</TabsTrigger>
+            </TabsList>
+            <div className="flex-1 min-h-0 overflow-y-auto pr-1">
             <TabsContent value="results" className="space-y-4 pt-4">
-              <div className="grid grid-cols-3 gap-4 mb-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="relative min-w-[180px] flex-1 max-w-xs">
+                  <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                  <Input
+                    className="h-9 pl-8 text-xs"
+                    placeholder="Search item or question"
+                    value={analysisSearch}
+                    onChange={(e) => setAnalysisSearch(e.target.value)}
+                  />
+                </div>
+                <Select value={analysisFilter} onValueChange={setAnalysisFilter}>
+                  <SelectTrigger className="h-9 w-36 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All actions</SelectItem>
+                    <SelectItem value="Retain">Retain</SelectItem>
+                    <SelectItem value="Revise">Revise</SelectItem>
+                    <SelectItem value="Reject">Reject</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button variant="outline" size="sm" onClick={() => setShowChart((value) => !value)}>
+                  {showChart ? "Hide chart" : "Show chart"}
+                </Button>
+                <span className="ml-auto text-xs text-muted-foreground">{visibleAnalysis.length} of {analysis.length} items</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <Card><CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Retain</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold text-green-600">{summary.retain}</div></CardContent></Card>
                 <Card><CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Revise</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold text-yellow-600">{summary.revise}</div></CardContent></Card>
                 <Card><CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Reject</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold text-red-600">{summary.reject}</div></CardContent></Card>
               </div>
-              {chartData.length > 0 && (
+              {showChart && chartData.length > 0 && (
                 <ResponsiveContainer width="100%" height={200} className="mb-4">
                   <BarChart data={chartData}>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
@@ -480,13 +538,20 @@ export default function TestItemAnalysis() {
                 </ResponsiveContainer>
               )}
               <Table>
-                <TableHeader><TableRow><TableHead>Item</TableHead><TableHead>UA Correct</TableHead><TableHead>LA Correct</TableHead><TableHead>Difficulty</TableHead><TableHead>Discrimination</TableHead><TableHead>Action</TableHead></TableRow></TableHeader>
+                <TableHeader><TableRow><TableHead>Item</TableHead><TableHead>Question</TableHead><TableHead className="text-center">UA Correct</TableHead><TableHead className="text-center">LA Correct</TableHead><TableHead>Difficulty</TableHead><TableHead>Discrimination</TableHead><TableHead>Action</TableHead></TableRow></TableHeader>
                 <TableBody>
-                  {analysis.map(a => (
+                  {visibleAnalysis.map(a => (
                     <TableRow key={a.item_id}>
                       <TableCell className="font-medium">#{a.item_number}</TableCell>
-                      <TableCell>{a.ua_correct}/{a.ua_proportion}</TableCell>
-                      <TableCell>{a.la_correct}/{a.la_proportion}</TableCell>
+                      <TableCell className="max-w-[220px] truncate text-xs text-muted-foreground" title={a.question || ""}>{a.question || "—"}</TableCell>
+                      <TableCell className="text-center">
+                        <span className="font-medium">{a.ua_correct}/{a.ua_total}</span>
+                        <span className="block text-xs text-muted-foreground">{Number(a.ua_proportion).toFixed(2)}</span>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <span className="font-medium">{a.la_correct}/{a.la_total}</span>
+                        <span className="block text-xs text-muted-foreground">{Number(a.la_proportion).toFixed(2)}</span>
+                      </TableCell>
                       <TableCell>
                         <div className="space-y-1">
                           <Badge variant={dfColors[a.difficulty_level] || "outline"} className="text-xs">{a.difficulty_level}</Badge>
@@ -502,52 +567,62 @@ export default function TestItemAnalysis() {
                       <TableCell><Badge variant={actionColors[a.action] || "outline"} className="text-xs">{a.action}</Badge></TableCell>
                     </TableRow>
                   ))}
+                  {visibleAnalysis.length === 0 && (
+                    <TableRow><TableCell colSpan={7} className="py-8 text-center text-muted-foreground">No items match these filters.</TableCell></TableRow>
+                  )}
                 </TableBody>
               </Table>
             </TabsContent>
             <TabsContent value="tally" className="pt-4">
-              <div className="text-xs text-muted-foreground mb-2">Tally: f = frequency, p = proportion</div>
+              <div className="flex flex-wrap items-center gap-3 mb-2">
+                <span className="text-xs text-muted-foreground">Tally: f = frequency, p = proportion</span>
+                {analysis.length > 0 && (
+                  <Select value={String(Math.min(tallyItemIndex, analysis.length - 1))} onValueChange={(value) => setTallyItemIndex(Number(value))}>
+                    <SelectTrigger className="h-8 w-40 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {analysis.map((item, index) => (
+                        <SelectItem key={item.item_id} value={String(index)}>Item {item.item_number}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                <span className="ml-auto text-xs text-muted-foreground">Showing one item at a time so each item keeps its own options</span>
+              </div>
               <div className="overflow-auto">
                 {analysis.length > 0 ? (() => {
-                  const opts = getItemOptions(analysis[0])
-                  const totalTakers = analysis[0]?.ua_total + (analysis[0]?.la_total || 0) || students.length
-                  const totalPerOption = {}
-                  opts.forEach(o => totalPerOption[o] = 0)
-                  analysis.forEach(a => {
-                    const upper = a.upper_choices || {}
-                    const lower = a.lower_choices || {}
-                    opts.forEach(o => {
-                      totalPerOption[o] += (upper[o] || 0) + (lower[o] || 0)
-                    })
-                  })
+                  const itemIndex = Math.min(tallyItemIndex, analysis.length - 1)
+                  const tallyItem = analysis[itemIndex]
+                  const opts = getItemOptions(tallyItem)
+                  const upper = tallyItem.upper_choices || {}
+                  const lower = tallyItem.lower_choices || {}
+                  const totalPerOption = Object.fromEntries(opts.map((o) => [o, (upper[o] || 0) + (lower[o] || 0)]))
+                  const totalTakers = (tallyItem.ua_total || 0) + (tallyItem.la_total || 0)
                   return (
-                    <>
-                      <Table>
-                        <TableHeader>
-                          {renderTallyHeader(opts)}
-                          {renderTallySubHeader(opts)}
-                        </TableHeader>
-                        <TableBody>
-                          {renderTallyRows(analysis, examItems)}
-                          <TableRow className="bg-muted/50 font-medium">
-                            <TableCell className="border text-center" rowSpan={2}>Total</TableCell>
-                            <TableCell className="border text-center text-xs">All</TableCell>
-                            {opts.map((o, i) => (
-                              <TableCell key={i} className="border text-center text-xs">{totalPerOption[o]}</TableCell>
-                            ))}
-                            <TableCell className="border text-center text-xs">{analysis.reduce((s, a) => s + (a.ua_correct || 0) + (a.la_correct || 0), 0)}</TableCell>
-                            <TableCell className="border text-center text-xs">—</TableCell>
-                            <TableCell className="border text-center text-xs" rowSpan={2} colSpan={5}>Total Takers: {totalTakers}</TableCell>
-                          </TableRow>
-                        </TableBody>
-                      </Table>
-                    </>
+                    <Table>
+                      <TableHeader>
+                        {renderTallyHeader(opts)}
+                        {renderTallySubHeader(opts)}
+                      </TableHeader>
+                      <TableBody>
+                        {renderTallyRows([tallyItem], examItems)}
+                        <TableRow className="bg-muted/50 font-medium">
+                          <TableCell className="border text-center" rowSpan={2}>Total</TableCell>
+                          <TableCell className="border text-center text-xs">All</TableCell>
+                          {opts.map((o, i) => (
+                            <TableCell key={i} className="border text-center text-xs">{totalPerOption[o]}</TableCell>
+                          ))}
+                          <TableCell className="border text-center text-xs">{(tallyItem.ua_correct || 0) + (tallyItem.la_correct || 0)}</TableCell>
+                          <TableCell className="border text-center text-xs">—</TableCell>
+                          <TableCell className="border text-center text-xs" rowSpan={2} colSpan={5}>Total Takers: {totalTakers}</TableCell>
+                        </TableRow>
+                      </TableBody>
+                    </Table>
                   )
                 })() : (
                   <div className="text-center py-8 text-muted-foreground">Run analysis first to see results</div>
                 )}
               </div>
-              <p className="text-xs text-muted-foreground mt-2">Number of takers: {students.length}</p>
+              <p className="text-xs text-muted-foreground mt-2">Students analyzed: {students.length}</p>
             </TabsContent>
             <TabsContent value="rankings" className="pt-4">
               {(() => {
@@ -617,7 +692,16 @@ export default function TestItemAnalysis() {
                                 <TableCell className="text-xs">{s.name}</TableCell>
                                 {examItems.map(it => {
                                   const ans = (s.answers || []).find(a => a.test_item_id === it.id)
-                                  return <TableCell key={it.id} className="text-center text-xs">{ans?.answer || "-"}</TableCell>
+                                  const correct = ans && ans.answer && ans.answer === it.correct_answer
+                                  return (
+                                    <TableCell
+                                      key={it.id}
+                                      className={`text-center text-xs ${ans && ans.answer ? (correct ? "text-green-600" : "text-red-600") : "text-muted-foreground"}`}
+                                      title={ans?.answer || "No answer"}
+                                    >
+                                      {ans?.answer || "—"}
+                                    </TableCell>
+                                  )
                                 })}
                                 <TableCell className="text-right font-medium">{s.total_score || s.correct_count}</TableCell>
                               </TableRow>
@@ -630,6 +714,7 @@ export default function TestItemAnalysis() {
                 </div>
               )}
             </TabsContent>
+            </div>
           </Tabs>
         </DialogContent>
       </Dialog>

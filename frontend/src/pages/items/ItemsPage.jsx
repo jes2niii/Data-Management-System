@@ -73,6 +73,8 @@ export default function ItemsPage() {
     onSuccess: () => {
       toast.success(editingForm ? "Survey updated" : "Survey created")
       queryClient.invalidateQueries({ queryKey: ["surveys"] })
+      queryClient.invalidateQueries({ queryKey: ["survey-detail"] })
+      queryClient.invalidateQueries({ queryKey: ["survey-analysis"] })
       setDialogOpen(false); setEditingForm(null); resetForm()
     },
     onError: (err) => toast.error(err.response?.data?.message || "Failed"),
@@ -80,13 +82,20 @@ export default function ItemsPage() {
 
   const deleteMutation = useMutation({
     mutationFn: (id) => api.delete(`/surveys/${id}`),
-    onSuccess: () => { toast.success("Survey deleted"); queryClient.invalidateQueries({ queryKey: ["surveys"] }); setDeleteOpen(false) },
+    onSuccess: () => {
+      toast.success("Survey deleted")
+      queryClient.invalidateQueries({ queryKey: ["surveys"] })
+      queryClient.invalidateQueries({ queryKey: ["survey-detail"] })
+      queryClient.invalidateQueries({ queryKey: ["survey-analysis"] })
+      setDeleteOpen(false)
+    },
   })
 
   const respondMutation = useMutation({
     mutationFn: (fd) => api.post(`/surveys/${selectedForm?.id}/responses`, fd),
     onSuccess: () => {
       toast.success("Response submitted")
+      queryClient.invalidateQueries({ queryKey: ["surveys"] })
       queryClient.invalidateQueries({ queryKey: ["survey-detail"] })
       queryClient.invalidateQueries({ queryKey: ["survey-analysis"] })
       setRespondOpen(false)

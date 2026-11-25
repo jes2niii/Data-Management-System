@@ -490,6 +490,32 @@ class ContainmentTest extends TestCase
         ])->assertUnprocessable()->assertJsonValidationErrors('results');
     }
 
+    public function test_quick_analysis_can_be_saved_as_a_test_exam(): void
+    {
+        Sanctum::actingAs($this->account(['items.update', 'items.create']));
+
+        $response = $this->postJson('/api/item-analysis/quick', [
+            'student_count' => 3,
+            'item_count' => 2,
+            'results' => [[true, true], [true, false], [false, false]],
+            'save' => true,
+            'title' => 'Saved quick analysis',
+        ])->assertOk();
+        $examId = $response->json('data.saved.id');
+
+        $this->assertDatabaseHas('test_exams', [
+            'id' => $examId, 'title' => 'Saved quick analysis', 'total_items' => 2,
+        ]);
+        $this->assertSame(3, DB::table('test_students')->where('test_exam_id', $examId)->count());
+        $this->assertSame(6, DB::table('test_answers')
+            ->whereIn('test_student_id', function ($query) use ($examId) {
+                $query->select('id')->from('test_students')->where('test_exam_id', $examId);
+            })->count());
+        $this->assertSame(2, DB::table('test_item_analysis')->where('test_exam_id', $examId)->count());
+        $this->assertNotNull(DB::table('test_students')
+            ->where('test_exam_id', $examId)->whereNotNull('group')->value('group'));
+    }
+
     public function test_a_user_account_can_be_created_from_an_employee_record(): void
     {
         $admin = $this->account([], Role::SUPER_ADMIN);

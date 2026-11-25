@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { useMutation } from "@tanstack/react-query"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import api from "@/lib/api"
 import { useAuth } from "@/contexts/AuthContext"
@@ -7,6 +7,7 @@ import { hasPermission } from "@/lib/access"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -19,16 +20,26 @@ const dfColors = {
 }
 
 export default function QuickItemAnalysis() {
+  const queryClient = useQueryClient()
   const { user } = useAuth()
   const canAnalyze = hasPermission(user, "items.update")
+  const canSave = hasPermission(user, "items.create")
   const [studentCount, setStudentCount] = useState(5)
   const [itemCount, setItemCount] = useState(10)
   const [matrix, setMatrix] = useState([])
   const [result, setResult] = useState(null)
+  const [saveAnalysis, setSaveAnalysis] = useState(false)
+  const [analysisTitle, setAnalysisTitle] = useState("")
+  const [saved, setSaved] = useState(null)
 
   const mutation = useMutation({
     mutationFn: (payload) => api.post("/item-analysis/quick", payload).then((r) => r.data.data),
-    onSuccess: (data) => { setResult(data); toast.success("Analysis computed") },
+    onSuccess: (data) => {
+      setResult(data)
+      setSaved(data.saved)
+      if (data.saved) queryClient.invalidateQueries({ queryKey: ["test-exams"] })
+      toast.success(data.saved ? "Analysis computed and saved" : "Analysis computed")
+    },
     onError: (err) => toast.error(err.response?.data?.message || "Failed to compute analysis"),
   })
 
@@ -41,12 +52,23 @@ export default function QuickItemAnalysis() {
     setItemCount(items)
     setMatrix(Array.from({ length: students }, () => Array.from({ length: items }, () => false)))
     setResult(null)
+    setSaved(null)
   }
 
   const toggle = (student, item) => setMatrix((current) => current.map((row, rowIndex) =>
     rowIndex === student ? row.map((value, column) => column === item ? !value : value) : row))
 
-  const reset = () => { setMatrix([]); setResult(null) }
+  const reset = () => { setMatrix([]); setResult(null); setSaved(null) }
+
+  const titlePlaceholder = `Quick Analysis ${new Intl.DateTimeFormat("en-PH", {
+    timeZone: "Asia/Manila",
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  }).format(new Date())}`
 
   return (
     <Card>
@@ -126,11 +148,41 @@ export default function QuickItemAnalysis() {
                 </TableBody>
               </Table>
             </div>
+            {canSave && (
+              <div className="flex flex-wrap items-end gap-3 rounded-md border p-3">
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="saveQuickAnalysis"
+                    checked={saveAnalysis}
+                    onCheckedChange={(checked) => setSaveAnalysis(Boolean(checked))}
+                  />
+                  <Label htmlFor="saveQuickAnalysis">Save this analysis</Label>
+                </div>
+                {saveAnalysis && (
+                  <div className="space-y-1">
+                    <Label htmlFor="quickAnalysisTitle">Record title</Label>
+                    <Input
+                      id="quickAnalysisTitle"
+                      className="w-64"
+                      placeholder={titlePlaceholder}
+                      value={analysisTitle}
+                      onChange={(e) => setAnalysisTitle(e.target.value)}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
             <Button
-              onClick={() => mutation.mutate({ student_count: studentCount, item_count: itemCount, results: matrix })}
+              onClick={() => mutation.mutate({
+                student_count: studentCount,
+                item_count: itemCount,
+                results: matrix,
+                save: saveAnalysis,
+                title: analysisTitle || undefined,
+              })}
               disabled={mutation.isPending}
             >
-              <Play className="mr-2 h-4 w-4" /> {mutation.isPending ? "Computing..." : "Compute Analysis"}
+              <Play className="mr-2 h-4 w-4" /> {mutation.isPending ? "Computing..." : saveAnalysis ? "Compute & Save" : "Compute Analysis"}
             </Button>
           </>
         )}
@@ -141,6 +193,7 @@ export default function QuickItemAnalysis() {
               <Badge variant="success">Retain: {result.summary.retain}</Badge>
               <Badge variant="warning">Revise: {result.summary.revise}</Badge>
               <Badge variant="destructive">Reject: {result.summary.reject}</Badge>
+              {saved && <Badge variant="outline">Saved: {saved.title} (#{saved.id}) — open its Results in Test Items</Badge>}
             </div>
 
             <div>
