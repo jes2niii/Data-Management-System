@@ -18,6 +18,7 @@ const routeLabels = {
   billing: "Billing",
   "activity-logs": "Activity Logs",
   reports: "Reports",
+  "incident-reports": "Incident Reports",
   settings: "Settings",
   notifications: "Notifications",
   profile: "Profile",

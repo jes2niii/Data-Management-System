@@ -12,6 +12,8 @@ test("limited accounts receive only allowed module navigation", () => {
   assert.equal(canOpenPage(user, "users"), false)
   assert.equal(canOpenPage(user, "departments"), false)
   assert.equal(canOpenPage(account(["departments.read"]), "departments"), true)
+  assert.equal(canOpenPage(user, "incident-reports"), false)
+  assert.equal(canOpenPage(account(["incident_reports.read"]), "incident-reports"), true)
   assert.equal(canOpenPage(user, "dashboard"), true)
   assert.equal(canOpenPage(null, "dashboard"), false)
 })

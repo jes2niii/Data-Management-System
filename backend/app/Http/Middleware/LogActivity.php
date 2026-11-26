@@ -141,7 +141,7 @@ class LogActivity
             'folder-tree' => 'folders',
             'surveys', 'test-exams' => 'items',
             'attendance-statuses' => 'attendances',
-            default => Str::snake($resource),
+            default => Str::snake(str_replace('-', '_', $resource)),
         };
 
         // Specific verbs are route segments, not substrings, so "remove" is
@@ -327,7 +327,7 @@ class LogActivity
         if ($data === null) {
             return null;
         }
-        foreach (['name', 'title', 'full_name', 'email', 'username', 'code', 'reference_number'] as $key) {
+        foreach (['name', 'title', 'full_name', 'email', 'username', 'code', 'reference_number', 'item'] as $key) {
             if (isset($data[$key]) && is_scalar($data[$key]) && (string) $data[$key] !== '') {
                 return (string) $data[$key];
             }

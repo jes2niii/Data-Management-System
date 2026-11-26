@@ -65,7 +65,7 @@ class ContainmentTest extends TestCase
             '080800', '080900', '081000', '081100', '081200', '081300', '081400', '081500', '081700',
             '081900', '082300', '082400', '082500', '082600', '083000', '083100', '083200', '083400', '083500', '083600',
             '084000', '085000', '085100', '085200', '085300', '085400', '085500', '085600', '085700',
-            '085800', '085900', '086000', '086100', '086200',
+            '085800', '085900', '086000', '086100', '086200', '087700', '087800',
         ];
         foreach ($tables as $time) {
             if ($time === '083400') {
@@ -514,6 +514,103 @@ class ContainmentTest extends TestCase
         $this->assertSame(2, DB::table('test_item_analysis')->where('test_exam_id', $examId)->count());
         $this->assertNotNull(DB::table('test_students')
             ->where('test_exam_id', $examId)->whereNotNull('group')->value('group'));
+    }
+
+    public function test_incident_report_permissions_are_available_to_roles(): void
+    {
+        foreach (['create', 'read', 'update', 'delete', 'export'] as $action) {
+            $this->assertDatabaseHas('permissions', [
+                'name' => "incident_reports.{$action}",
+                'module' => 'incident_reports',
+                'action' => $action,
+            ]);
+        }
+    }
+
+    public function test_incident_reports_generate_numbers_validate_and_report_stats(): void
+    {
+        $user = $this->account([
+            'incident_reports.read', 'incident_reports.create', 'incident_reports.update',
+            'incident_reports.delete', 'incident_reports.export',
+        ]);
+        Sanctum::actingAs($user);
+
+        $payload = [
+            'filer_name' => 'Juan Dela Cruz',
+            'date_reported' => now()->toDateString(),
+            'item' => 'Office laptop',
+            'property_code' => 'IT-001',
+            'incident_type' => 'Lost',
+            'date_of_incident' => now()->toDateString(),
+            'place_of_incident' => 'Room 101',
+            'detailed_narration' => 'Laptop was missing after the meeting.',
+            'remarks' => 'Checked with reception.',
+        ];
+
+        $first = $this->postJson('/api/incident-reports', $payload)->assertCreated();
+        $this->assertSame('IR-'.now()->year.'-0001', $first->json('data.ir_number'));
+        $this->assertSame($user->id, $first->json('data.created_by'));
+        $audit = ActivityLog::where('module', 'incident_reports')->where('action', 'create')->sole();
+        $this->assertStringContainsString('Created incident report "Office laptop"', $audit->description);
+        $this->assertSame('Juan Dela Cruz', $audit->new_values['filer_name']);
+        $second = $this->postJson('/api/incident-reports', array_replace($payload, [
+            'item' => 'Office printer', 'incident_type' => 'Damaged', 'property_code' => null,
+        ]))->assertCreated();
+        $this->assertSame('IR-'.now()->year.'-0002', $second->json('data.ir_number'));
+        $this->assertDatabaseCount('incident_reports', 2);
+
+        $this->postJson('/api/incident-reports', array_replace($payload, [
+            'date_of_incident' => now()->addDay()->toDateString(),
+        ]))->assertUnprocessable()->assertJsonValidationErrors('date_of_incident');
+        $this->postJson('/api/incident-reports', array_replace($payload, ['incident_type' => 'Missing']))
+            ->assertUnprocessable()->assertJsonValidationErrors('incident_type');
+
+        $this->getJson('/api/incident-reports?incident_type=Lost')->assertOk()
+            ->assertJsonPath('data.total', 1);
+        $this->getJson('/api/incident-reports?search=IT-001')->assertOk()
+            ->assertJsonPath('data.total', 1);
+        $this->getJson('/api/incident-reports?sort_by=ir_number&sort_dir=asc')->assertOk()
+            ->assertJsonPath('data.data.0.ir_number', 'IR-'.now()->year.'-0001');
+
+        $this->getJson('/api/incident-reports/stats')->assertOk()
+            ->assertJsonPath('data.total', 2)
+            ->assertJsonPath('data.lost', 1)
+            ->assertJsonPath('data.damaged', 1)
+            ->assertJsonPath('data.stolen', 0)
+            ->assertJsonPath('data.this_year', 2)
+            ->assertJsonCount(12, 'data.monthly');
+
+        $id = $first->json('data.id');
+        $this->putJson("/api/incident-reports/{$id}", [
+            'date_of_incident' => now()->addDay()->toDateString(),
+        ])->assertUnprocessable()->assertJsonValidationErrors('date_of_incident');
+        $this->getJson("/api/incident-reports/{$id}")->assertOk()->assertJsonPath('data.item', 'Office laptop');
+        $this->putJson("/api/incident-reports/{$id}", ['remarks' => 'Updated remarks'])->assertOk()
+            ->assertJsonPath('data.remarks', 'Updated remarks')
+            ->assertJsonPath('data.ir_number', 'IR-'.now()->year.'-0001');
+
+        $csv = $this->get('/api/incident-reports/export/csv')->assertOk()
+            ->assertDownload('incident-reports.csv')->streamedContent();
+        $this->assertStringContainsString('IR-'.now()->year.'-0001', $csv);
+        $this->assertStringContainsString('Detailed Narration', $csv);
+        $this->getJson('/api/incident-reports/export/json')->assertOk()
+            ->assertJsonFragment(['IR #' => 'IR-'.now()->year.'-0001']);
+
+        $this->deleteJson("/api/incident-reports/{$id}")->assertOk();
+        $this->assertSoftDeleted('incident_reports', ['id' => $id]);
+    }
+
+    public function test_incident_reports_respect_module_permissions(): void
+    {
+        $reader = $this->account(['incident_reports.read']);
+        Sanctum::actingAs($reader);
+
+        $this->getJson('/api/incident-reports')->assertOk();
+        $this->getJson('/api/incident-reports/stats')->assertOk();
+        $this->postJson('/api/incident-reports', [])->assertForbidden();
+        $this->putJson('/api/incident-reports/1', ['remarks' => 'x'])->assertForbidden();
+        $this->deleteJson('/api/incident-reports/1')->assertForbidden();
+        $this->get('/api/incident-reports/export/csv')->assertForbidden();
     }
 
     public function test_a_user_account_can_be_created_from_an_employee_record(): void

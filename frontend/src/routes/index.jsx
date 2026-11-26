@@ -31,6 +31,7 @@ const AttendancePage = lazy(() => import("@/pages/attendance/AttendancePage"))
 const TrainingMonitoringPage = lazy(() => import("@/pages/training/TrainingMonitoringPage"))
 const InventoryPage = lazy(() => import("@/pages/inventory/InventoryPage"))
 const BookInventoryPage = lazy(() => import("@/pages/books/BookInventoryPage"))
+const IncidentReportsPage = lazy(() => import("@/pages/incident-reports/IncidentReportsPage"))
 
 function SuspenseFallback() {
   return (
@@ -141,6 +142,10 @@ export const router = createBrowserRouter([
           { path: "training-monitoring", element: <Navigate to="/training" replace /> },
           { path: "inventory", element: <ModuleRoute page="inventory"><InventoryPage /></ModuleRoute> },
           { path: "books", element: <ModuleRoute page="books"><BookInventoryPage /></ModuleRoute> },
+          { path: "incident-reports", element: <ModuleRoute page="incident-reports"><IncidentReportsPage /></ModuleRoute> },
+          { path: "incident-reports/create", element: <ModuleRoute page="incident-reports"><IncidentReportsPage /></ModuleRoute> },
+          { path: "incident-reports/:id/edit", element: <ModuleRoute page="incident-reports"><IncidentReportsPage /></ModuleRoute> },
+          { path: "incident-reports/:id", element: <ModuleRoute page="incident-reports"><IncidentReportsPage /></ModuleRoute> },
           { path: "*", element: <AccessMessage missing /> },
         ],
       },

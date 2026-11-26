@@ -36,11 +36,12 @@ class DatabaseSeeder extends Seeder
         $this->createDefaultSettings();
         $this->call(TrainingCategorySeeder::class);
         $this->call(TrainingCourseSeeder::class);
+        $this->call(BookSeeder::class);
         if (app()->environment('local', 'testing') && config('dms.demo_seed')) {
             $this->call([
                 BillSeeder::class, EmployeeSeeder::class, AttendanceSeeder::class,
                 TrainingMonitoringSeeder::class, SubscriptionSeeder::class, InventorySeeder::class,
-                SupplyChainInventorySeeder::class, BookSeeder::class,
+                SupplyChainInventorySeeder::class,
             ]);
         }
     }
@@ -100,6 +101,7 @@ class DatabaseSeeder extends Seeder
             'inventory_suppliers',
             'book_inventories',
             'book_categories',
+            'incident_reports',
             'items',
         ];
 
@@ -148,6 +150,10 @@ class DatabaseSeeder extends Seeder
             ->whereNotIn('module', ['activity_logs'])
             ->pluck('id')->toArray();
         $roles['Administrator']->permissions()->sync($adminPerms);
+        // Incident reports explicitly include deletion for administrators.
+        $roles['Administrator']->permissions()->syncWithoutDetaching(
+            Permission::where('module', 'incident_reports')->pluck('id')->all()
+        );
 
         $hrPerms = Permission::where(function ($q) {
             $q->where('module', 'employees')

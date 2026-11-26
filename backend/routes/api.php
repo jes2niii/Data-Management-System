@@ -25,6 +25,7 @@ use App\Http\Controllers\Api\QuickAnalysisController;
 use App\Http\Controllers\Api\InventoryCategoryController;
 use App\Http\Controllers\Api\InventoryItemController;
 use App\Http\Controllers\Api\InventorySupplierController;
+use App\Http\Controllers\Api\IncidentReportController;
 use App\Http\Controllers\Api\SubscriptionController;
 use App\Http\Controllers\Api\TrainingController;
 use App\Http\Controllers\Api\TrainingDetailController;
@@ -170,6 +171,11 @@ Route::middleware(['auth:sanctum', 'account.enabled'])->group(function () use ($
     $permissionedResource('document-categories', DocumentCategoryController::class, 'documents', ['show']);
     $permissionedResource('folder-categories', FolderCategoryController::class, 'folders', ['show']);
     $permissionedResource('employee-attachment-categories', EmployeeAttachmentCategoryController::class, 'employees', ['show']);
+
+    // Incident Reports
+    Route::get('/incident-reports/stats', [IncidentReportController::class, 'stats'])->middleware('permission:incident_reports.read');
+    Route::get('/incident-reports/export/{format}', [IncidentReportController::class, 'export'])->middleware('permission:incident_reports.export');
+    $permissionedResource('incident-reports', IncidentReportController::class, 'incident_reports');
 
     // Activity Logs
     Route::get('/activity-logs', [ActivityLogController::class, 'index'])->middleware('permission:activity_logs.read');

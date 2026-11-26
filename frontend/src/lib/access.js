@@ -23,6 +23,7 @@ export const pagePermissions = {
   training: "training_monitorings.read",
   inventory: "inventory.read",
   books: "book_inventories.read",
+  "incident-reports": "incident_reports.read",
 }
 
 const reportSources = ["employees", "documents", "bills", "activity_logs"]

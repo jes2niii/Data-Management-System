@@ -29,6 +29,7 @@ import {
   Palette,
   Boxes,
   Library,
+  FileWarning,
   X,
 } from "lucide-react"
 
@@ -44,6 +45,7 @@ const navItems = [
   { to: "/training", label: "Training Monitoring", icon: GraduationCap },
   { to: "/inventory", label: "Inventory", icon: Boxes },
   { to: "/books", label: "Book Inventory", icon: Library },
+  { to: "/incident-reports", label: "Incident Reports", icon: FileWarning },
   { to: "/activity-logs", label: "Activity Logs", icon: Activity },
   { to: "/reports", label: "Reports", icon: BarChart3 },
   { to: "/notifications", label: "Notifications", icon: Bell },
